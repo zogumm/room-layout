@@ -102,6 +102,7 @@ details .props{margin-top:8px}
     <button id="fDel" class="danger">삭제</button>
     <select id="fPreset" aria-label="추가할 가구"></select>
     <button id="fAdd">추가</button>
+    <button data-zoom="in" aria-label="평면 확대">＋</button><button data-zoom="out" aria-label="평면 축소">－</button><button data-zoom="fit">맞춤</button>
     <label>가로<input type="number" id="fW" step="10" min="10" style="width:5.5em"></label>
     <label>세로<input type="number" id="fD" step="10" min="10" style="width:5.5em"></label>
     <label>높이<input type="number" id="fH" step="10" min="0" style="width:5.5em"></label>
@@ -114,9 +115,10 @@ details .props{margin-top:8px}
     <button id="btnDup">복제</button>
     <button id="btnDel" class="danger">삭제</button>
     <label><input type="checkbox" id="chkGrid" checked> 격자 100mm</label>
+    <button data-zoom="in" aria-label="평면 확대">＋</button><button data-zoom="out" aria-label="평면 축소">－</button><button data-zoom="fit">맞춤</button>
   </div>
   <canvas id="plan"></canvas>
-  <div class="hint">가구를 끌어서 이동 · 누르면 생기는 파란 점을 끌면 크기 조절 · 선택하면 벽까지 거리가 점선으로 표시 · PC에선 방향키 10mm(Shift 100mm), R 회전, Delete 삭제 · 커튼레일은 겹침 검사에서 빼요</div>
+  <div class="hint">두 손가락·휠로 확대, 빈 곳을 끌면 이동 · 가구를 끌어서 이동 · 누르면 생기는 파란 점을 끌면 크기 조절 · 선택하면 벽까지 거리가 점선으로 표시 · PC에선 방향키 10mm(Shift 100mm), R 회전, Delete 삭제 · 커튼레일은 겹침 검사에서 빼요</div>
   <div class="chips" id="chips"></div>
   <div class="msg" id="msg"></div>
 </section>
@@ -228,6 +230,7 @@ function note(text,bad){const m=$('msg');m.className=bad?'msg bad':'msg';m.textC
 
 /* ---------- 2D 평면 ---------- */
 const cv=$('plan'),ctx=cv.getContext('2d');let PAD=70,sc=1,cw=0,ch=0,OX=70,OY=0;
+const view={z:1,px:0,py:0}; // 평면 확대 배율과 화면 이동량(px)
 const X=x=>OX+x*sc,Y=y=>OY-y*sc;
 const isFocus=()=>document.body.classList.contains('focus');
 // 보통: 폭에 맞추고 높이는 방 비율대로 / 크게 보기: 남은 화면(가로·세로) 안에 방 전체가 들어가게 맞추고 가운데 정렬
@@ -235,7 +238,7 @@ function layout2D(){const R=S.room;
  const totD=R.D+(R.balD>0?120+R.balD+120:0); // 방 + 북쪽 벽 + 발코니 + 발코니 바깥벽
  if(isFocus()){PAD=56;cv.style.height='';cw=cv.clientWidth||600;ch=cv.clientHeight||400;sc=Math.max(0.01,Math.min((cw-2*PAD)/R.W,(ch-2*PAD)/totD))}
  else{PAD=70;cv.style.height='';cw=cv.clientWidth||600;sc=(cw-2*PAD)/R.W;ch=Math.round(totD*sc+2*PAD);cv.style.height=ch+'px'}
- OX=(cw-R.W*sc)/2;OY=(ch+totD*sc)/2;
+ const sc0=sc;sc=sc0*view.z;OX=(cw-R.W*sc0)/2+view.px;OY=(ch+totD*sc0)/2+view.py;
  const dpr=Math.min(devicePixelRatio||1,2);cv.width=Math.round(cw*dpr);cv.height=Math.round(ch*dpr);ctx.setTransform(dpr,0,0,dpr,0,0)}
 function corners(it,x0,y0,x1,y1){const[fw,fd]=fp(it),cx=it.x+fw/2,cy=it.y+fd/2,a=it.rot*Math.PI/180,c=Math.cos(a),s=Math.sin(a);return[[x0,y0],[x1,y0],[x1,y1],[x0,y1]].map(([x,y])=>[cx+x*c-y*s,cy+x*s+y*c])}
 function poly(p){ctx.beginPath();p.forEach((q,i)=>i?ctx.lineTo(X(q[0]),Y(q[1])):ctx.moveTo(X(q[0]),Y(q[1])));ctx.closePath()}
@@ -305,10 +308,25 @@ function snapEdges(it,resize){const tol=12/sc,R=S.room,xs=[0,R.W],ys=[0,R.D];
  else{it.x+=best([x0,x1],xs);it.y+=best([y0,y1],ys);clampIt(it)}}
 // 선택한 가구의 손잡이를 눌렀는지(손가락 크기 고려해 반경 22px)
 function onHandle(e){const s=sel!=null&&byId(sel);if(!s)return null;const[, , x1,y1]=box(s),p=cv.getBoundingClientRect();return Math.hypot(e.clientX-p.left-X(x1),e.clientY-p.top-Y(y1))<22?s:null}
+// 확대: (mx,my) 화면 점을 기준으로 배율 nz로 — 그 점 아래의 도면 위치가 그대로 남게 이동량을 다시 계산
+function zoomAt(mx,my,nz){nz=Math.min(8,Math.max(1,nz));const s0=sc/view.z,wx=(mx-OX)/sc,wy=(OY-my)/sc,oxb=OX-view.px,oyb=OY-view.py;
+ view.z=nz;if(nz===1){view.px=0;view.py=0}else{view.px=mx-oxb-wx*s0*nz;view.py=my-oyb+wy*s0*nz}draw()}
+const cvPts=new Map();let pinch=null,pan=null;
+const cvXY=e=>{const p=cv.getBoundingClientRect();return[e.clientX-p.left,e.clientY-p.top]};
+cv.addEventListener('wheel',e=>{e.preventDefault();const[mx,my]=cvXY(e);zoomAt(mx,my,view.z*(e.deltaY<0?1.15:1/1.15))},{passive:false});
 cv.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button!==0)return;
- const h=onHandle(e);if(h){drag={id:h.id,resize:true};cv.setPointerCapture(e.pointerId);refresh(false);return}
- const[wx,wy]=toWorld(e),it=pick(wx,wy);sel=it?it.id:null;if(it){drag={id:it.id,dx:wx-it.x,dy:wy-it.y};cv.setPointerCapture(e.pointerId);cv.classList.add('dragging')}refresh(false)});
-cv.addEventListener('pointermove',e=>{if(!drag)return;const it=byId(drag.id);if(!it){drag=null;return}const[wx,wy]=toWorld(e);
+ cvPts.set(e.pointerId,cvXY(e));try{cv.setPointerCapture(e.pointerId)}catch(err){} // 실패해도 끌기는 계속
+ if(cvPts.size===2){ // 두 손가락: 끌던 가구는 놓고 확대 모드로
+  if(drag)endDrag();pan=null;const[a,b]=[...cvPts.values()];pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1]),m:[(a[0]+b[0])/2,(a[1]+b[1])/2]};return}
+ const h=onHandle(e);if(h){drag={id:h.id,resize:true};refresh(false);return}
+ const[wx,wy]=toWorld(e),it=pick(wx,wy);sel=it?it.id:null;
+ if(it){drag={id:it.id,dx:wx-it.x,dy:wy-it.y};cv.classList.add('dragging')}else pan=cvXY(e); // 빈 곳은 화면 이동
+ refresh(false)});
+cv.addEventListener('pointermove',e=>{if(cvPts.has(e.pointerId))cvPts.set(e.pointerId,cvXY(e));
+ if(pinch&&cvPts.size>=2){const[a,b]=[...cvPts.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]),m=[(a[0]+b[0])/2,(a[1]+b[1])/2];
+  view.px+=m[0]-pinch.m[0];view.py+=m[1]-pinch.m[1];draw();if(pinch.d>0)zoomAt(m[0],m[1],view.z*d/pinch.d);pinch.d=d;pinch.m=m;e.preventDefault();return}
+ if(pan){const[x,y]=cvXY(e);if(view.z>1){view.px+=x-pan[0];view.py+=y-pan[1];draw()}pan=[x,y];return}
+ if(!drag)return;const it=byId(drag.id);if(!it){drag=null;return}const[wx,wy]=toWorld(e);
  if(drag.resize){const R=S.room,minD=it.type==='rail'?10:it.type==='partition'?20:100;
   const fw=Math.max(100,Math.min(snap(wx-it.x),R.W-it.x)),fd=Math.max(minD,Math.min(snap(wy-it.y),R.D-it.y)),turned=it.rot%180!==0;
   if(it.type==='rail')it.w=turned?fd:fw;           // 커튼레일은 길이만
@@ -317,7 +335,11 @@ cv.addEventListener('pointermove',e=>{if(!drag)return;const it=byId(drag.id);if(
  }else{it.x=snap(wx-drag.dx);it.y=snap(wy-drag.dy);clampIt(it);snapEdges(it,false)}
  refresh(false);e.preventDefault()});
 const endDrag=()=>{if(drag){drag=null;cv.classList.remove('dragging');save();if(remoteQueued){const q=remoteQueued;remoteQueued=null;applyRemote(q)}}};
-cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',endDrag);
+const cvUp=e=>{cvPts.delete(e.pointerId);if(cvPts.size<2)pinch=null;if(!cvPts.size)pan=null;endDrag()};
+cv.addEventListener('pointerup',cvUp);cv.addEventListener('pointercancel',cvUp);
+// ＋ / − / 맞춤 버튼(보통 화면·크게 보기 둘 다): 화면 가운데 기준
+document.addEventListener('click',e=>{const b=e.target.closest('[data-zoom]');if(!b)return;const k=b.dataset.zoom;
+ if(k==='fit')zoomAt(cw/2,ch/2,1);else zoomAt(cw/2,ch/2,view.z*(k==='in'?1.4:1/1.4))});
 
 /* ---------- 패널 ---------- */
 function renderChips(){const bad=badSet();$('chips').innerHTML=S.items.map(i=>`<span class="chip${i.id===sel?' sel':''}${bad.has(i.id)?' bad':''}" data-id="${i.id}">${esc(i.name)}</span>`).join('')}
