@@ -132,6 +132,8 @@ details .props{margin-top:8px}
     <label>Y (남쪽 벽에서)<input type="number" id="pY" step="10" min="0"></label>
     <label>회전<select id="pRot"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
     <label>색<input type="color" id="pColor"></label>
+    <label>칸 가로 수 (칸 책장)<input type="number" id="pCols" min="1" max="8" step="1"></label>
+    <label>칸 세로 수 (칸 책장)<input type="number" id="pRows" min="1" max="8" step="1"></label>
   </div>
   <h2>창 (북쪽 · 발코니2 쪽)</h2>
   <div class="props">
@@ -177,7 +179,13 @@ const FONT='"IBM Plex Sans KR","Malgun Gothic",sans-serif',MONO='"IBM Plex Mono"
 const COL={paper:'#fbfaf6',ink:'#1e2a33',grid:'#e8e5dc',grid2:'#d4d1c6',accent:'#1f6f9f',warn:'#c8321e',win:'#2aa7c9',door:'#2e9e4f',muted:'#6b7680'};
 const TYPES={bed:['침대','#e3a067'],desk:['책상','#6f94bb'],chair:['의자','#8fb77c'],storage:['수납','#b8906a'],rail:['커튼레일','#b52fb0'],box:['기타','#9a9a9a']};
 // [이름, W, D, H, 종류]
-const PRESETS=[['침대(싱글 매트리스)',1900,1000,450,'bed'],['침대(슈퍼싱글)',2000,1100,450,'bed'],['책상',800,500,720,'desk'],['책상(큰)',1200,600,720,'desk'],['의자',450,450,850,'chair'],['옷장',800,600,2000,'storage'],['서랍장',600,400,900,'storage'],['책장',800,300,1800,'storage'],['커튼레일',2000,30,0,'rail'],['사용자 가구',600,600,600,'box']];
+// [이름, W, D, H, 종류, 추가속성] — 책상·의자·칸책장은 이케아 미케·회전의자·칼락스 공개 치수 기준(실측 아님)
+const PRESETS=[['침대(싱글 매트리스)',1900,1000,450,'bed'],['침대(슈퍼싱글)',2000,1100,450,'bed'],
+ ['책상(미케형)',730,500,750,'desk'],['책상(큰)',1200,600,750,'desk'],['회전의자',500,500,900,'chair'],
+ ['칸 책장 8칸',770,390,1470,'storage',{style:'kallax',cols:2,rows:4}],['칸 책장 16칸',1470,390,1470,'storage',{style:'kallax',cols:4,rows:4}],
+ ['옷장',800,600,2000,'storage'],['서랍장',600,400,900,'storage'],['책장(선반형)',800,300,1800,'storage'],['커튼레일',2000,30,0,'rail'],['사용자 가구',600,600,600,'box']];
+// 칸 책장: 칸 하나 안쪽 335, 바깥판 39, 칸막이 16 → 칸 수로 바깥 치수 계산(4칸=1,466 ≈ 칼락스 1,470)
+const cubeSize=n=>n*335+2*39+(n-1)*16;
 let nextId=1;
 const mk=(name,w,d,h,type,x,y,rot)=>({id:nextId++,name,w,d,h,type,x,y,rot,color:TYPES[type][1]});
 // 좌표: 방 안쪽 남서 모서리가 원점, x=동쪽, y=북쪽. x,y는 가구 발자국의 남서 꼭짓점. rot 90/270이면 발자국이 d×w로 바뀜
@@ -261,7 +269,7 @@ function draw(){
    if(it.type==='chair'){poly(corners(it,w/2-80,-d/2,w/2,d/2));ctx.fillStyle=hexA(it.color,.55);ctx.fill()}}
   const[fw,fd]=fp(it),cx=X(it.x+fw/2),cy=Y(it.y+fd/2);
   if(it.type==='rail'){ctx.save();ctx.translate(cx,cy);if(fd>fw)ctx.rotate(-Math.PI/2);ctx.font='10px '+FONT;ctx.fillStyle=it.color;ctx.fillText(`${it.name} ${fmt(it.w)}`,0,-8);ctx.restore()}
-  else if(fw*sc>36&&fd*sc>22){ctx.font='600 11px '+FONT;ctx.fillStyle=COL.ink;ctx.fillText(it.name,cx,cy-6);ctx.font='10px '+MONO;ctx.fillStyle=COL.muted;ctx.fillText(`${it.w}×${it.d}`,cx,cy+8)}});
+  else if(fw*sc>36&&fd*sc>22){ctx.font='600 11px '+FONT;ctx.fillStyle=COL.ink;ctx.fillText(it.name,cx,cy-6);ctx.font='10px '+MONO;ctx.fillStyle=COL.muted;ctx.fillText(it.style==='kallax'?`${it.cols}×${it.rows}칸 · ${it.w}×${it.d}`:`${it.w}×${it.d}`,cx,cy+8)}});
  // 선택 가구 → 벽까지 거리
  const s=sel&&byId(sel);
  if(s){const[x0,y0,x1,y1]=box(s),mx=(x0+x1)/2,my=(y0+y1)/2;ctx.setLineDash([4,3]);ctx.strokeStyle=COL.accent;ctx.lineWidth=1;ctx.fillStyle=COL.accent;ctx.font='600 11px '+MONO;
@@ -315,7 +323,13 @@ cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',end
 function renderChips(){const bad=badSet();$('chips').innerHTML=S.items.map(i=>`<span class="chip${i.id===sel?' sel':''}${bad.has(i.id)?' bad':''}" data-id="${i.id}">${esc(i.name)}</span>`).join('')}
 $('chips').addEventListener('click',e=>{const c=e.target.closest('.chip');if(c){sel=+c.dataset.id;refresh(false)}});
 const PF=['pName','pType','pW','pD','pH','pX','pY','pRot','pColor'];
-function renderProps(){const s=byId(sel);PF.forEach(id=>$(id).disabled=!s);$('fW').disabled=$('fD').disabled=$('fH').disabled=!s;$('fW').value=s?s.w:'';$('fD').value=s?s.d:'';$('fH').value=s?s.h:'';if(!s){$('pName').value='';return}$('pName').value=s.name;$('pType').value=s.type;$('pW').value=s.w;$('pD').value=s.d;$('pH').value=s.h;$('pX').value=s.x;$('pY').value=s.y;$('pRot').value=s.rot;$('pColor').value=s.color}
+function renderProps(){const s=byId(sel);PF.forEach(id=>$(id).disabled=!s);$('fW').disabled=$('fD').disabled=$('fH').disabled=!s;$('fW').value=s?s.w:'';$('fD').value=s?s.d:'';$('fH').value=s?s.h:'';
+ const cube=!!(s&&s.style==='kallax');$('pCols').disabled=$('pRows').disabled=!cube;$('pCols').value=cube?s.cols:'';$('pRows').value=cube?s.rows:'';
+ if(!s){$('pName').value='';return}$('pName').value=s.name;$('pType').value=s.type;$('pW').value=s.w;$('pD').value=s.d;$('pH').value=s.h;$('pX').value=s.x;$('pY').value=s.y;$('pRot').value=s.rot;$('pColor').value=s.color}
+// 칸 수를 바꾸면 바깥 가로·높이를 칸 크기에 맞춰 다시 계산
+['pCols','pRows'].forEach(id=>$(id).addEventListener('change',()=>{const s=byId(sel);if(!s||s.style!=='kallax')return;
+ s.cols=Math.min(8,Math.max(1,Math.round(num('pCols',s.cols,1))));s.rows=Math.min(8,Math.max(1,Math.round(num('pRows',s.rows,1))));
+ s.w=cubeSize(s.cols);s.h=cubeSize(s.rows);s.name=s.name.replace(/\d+칸/,(s.cols*s.rows)+'칸');clampIt(s);refresh()}));
 PF.forEach(id=>$(id).addEventListener('change',()=>{const s=byId(sel);if(!s)return;s.name=$('pName').value.trim()||s.name;s.type=$('pType').value;s.w=num('pW',s.w,50);s.d=num('pD',s.d,10);s.h=num('pH',s.h,0);s.x=snap(num('pX',s.x,0));s.y=snap(num('pY',s.y,0));s.rot=+$('pRot').value;s.color=$('pColor').value;clampIt(s);refresh()}));
 ['fW','fD','fH'].forEach(id=>$(id).addEventListener('change',()=>{const s=byId(sel);if(!s)return;s.w=num('fW',s.w,50);s.d=num('fD',s.d,10);s.h=num('fH',s.h,0);clampIt(s);refresh()}));
 // 창 종류: 발코니창은 바닥부터, 일반창은 창턱 900부터
@@ -329,7 +343,7 @@ function refresh(doSave=true){draw();renderChips();renderProps();renderRoom();re
 $('preset').innerHTML=$('fPreset').innerHTML=PRESETS.map((p,i)=>`<option value="${i}">${p[0]} ${p[1]}×${p[2]}</option>`).join('');
 $('pType').innerHTML=Object.keys(TYPES).map(k=>`<option value="${k}">${TYPES[k][0]}</option>`).join('');
 $('legend').innerHTML=Object.keys(TYPES).map(k=>`<span><i style="background:${TYPES[k][1]}"></i>${TYPES[k][0]}</span>`).join('')+'<span><i style="background:#8fd0ea"></i>창</span><span><i style="background:#c9a97a"></i>문</span>';
-function addPreset(idx){const p=PRESETS[idx],it=mk(p[0],p[1],p[2],p[3],p[4],0,0,0),n=S.items.filter(i=>i.name.startsWith(p[0])).length;if(n)it.name=p[0]+' '+(n+1);const[fw,fd]=fp(it);it.x=snap((S.room.W-fw)/2);it.y=snap((S.room.D-fd)/2);clampIt(it);S.items.push(it);sel=it.id;refresh()};
+function addPreset(idx){const p=PRESETS[idx],it=Object.assign(mk(p[0],p[1],p[2],p[3],p[4],0,0,0),p[5]||{}),n=S.items.filter(i=>i.name.startsWith(p[0])).length;if(n)it.name=p[0]+' '+(n+1);const[fw,fd]=fp(it);it.x=snap((S.room.W-fw)/2);it.y=snap((S.room.D-fd)/2);clampIt(it);S.items.push(it);sel=it.id;refresh()};
 function rotate(){const s=byId(sel);if(!s)return;const[fw,fd]=fp(s),cx=s.x+fw/2,cy=s.y+fd/2;s.rot=(s.rot+90)%360;const[nw,nd]=fp(s);s.x=snap(cx-nw/2);s.y=snap(cy-nd/2);clampIt(s);refresh()}
 function del(){if(sel==null)return;S.items=S.items.filter(i=>i.id!==sel);sel=null;refresh()}
 function dup(){const s=byId(sel);if(!s)return;const c={...s,id:nextId++,name:s.name+' 복사',x:s.x+100,y:s.y+100};clampIt(c);S.items.push(c);sel=c.id;refresh()}
@@ -440,14 +454,32 @@ function buildItems(){clearGroup(gItems);const bad=badSet(),R=S.room;
    const L=w*0.68;box(L,45,d+24,-w/2+L/2+15,top+20,0,duv);                // 이불(발치쪽 2/3)
    [-1,1].forEach(s=>box(L,mattT*0.75,14,-w/2+L/2+15,top-mattT*0.35,s*(d/2+12),duv)); // 양옆으로 늘어진 이불
    const p=new THREE.Mesh(new THREE.SphereGeometry(0.5,20,14),pil);p.scale.set(300*M,120*M,(d-220)*M);p.position.set((w/2-220)*M,(top+55)*M,0);p.castShadow=true;g.add(p)}
-  else if(it.type==='desk'){const top=mStd(0xf6f6f3,{roughness:0.55}),leg=mStd(def?PAL.leg:it.color,{roughness:0.4,metalness:0.35});
-   box(w,25,d,0,h-12.5,0,top);[-1,1].forEach(sx=>[-1,1].forEach(sz=>cyl(16,h-25,sx*(w/2-45),(h-25)/2,sz*(d/2-45),leg)));
-   box(w-90,30,14,0,h-90,-(d/2-45),leg)}                                // 뒤쪽 가로대
-  else if(it.type==='chair'){const seat=mStd(def?PAL.seat:it.color,{roughness:0.6}),met=mStd(PAL.chrome,{roughness:0.3,metalness:0.6}),sh=Math.min(450,h-100);
-   [-1,1].forEach(sx=>[-1,1].forEach(sz=>cyl(10,sh-25,sx*(w/2-40),(sh-25)/2,sz*(d/2-40),met)));
-   box(w-20,28,d-20,0,sh-14,0,seat);
-   [-1,1].forEach(sz=>cyl(10,h-sh,w/2-40,sh+(h-sh)/2,sz*(d/2-40),met));
-   const bh=Math.min(220,h-sh-40);box(22,bh,d-50,w/2-40,h-bh/2-20,0,seat)}
+  else if(it.type==='desk'){ // 미케형: 왼쪽 판 다리 + 오른쪽 고리형 금속 다리 + 상판 밑 서랍 + 선 구멍
+   const wh=mStd(def?0xf6f6f3:it.color,{roughness:0.5}),tube=mStd(0xf2f2f0,{roughness:0.35,metalness:0.4}),dark=mStd(0xb8b6b0),hole=mStd(0x9a988f);
+   box(w,30,d,0,h-15,0,wh);                                             // 상판
+   box(30,h-30,d,-w/2+15,(h-30)/2,0,wh);                                 // 왼쪽 판
+   [-1,1].forEach(sz=>cyl(12,h-30,w/2-22,(h-30)/2,sz*(d/2-30),tube));    // 오른쪽 세로 파이프 2개
+   const bar=cyl(12,d-60,w/2-22,14,0,tube);bar.rotation.x=Math.PI/2;      // 바닥 쪽 가로 파이프(고리)
+   box(w-30,110,d-40,15,h-30-55,-10,wh);                                 // 서랍 몸통
+   box(w-90,96,8,15,h-30-55,d/2-26,wh);box(w-90,3,9,15,h-30-108,d/2-26,dark); // 서랍 앞판 + 틈
+   const c=cyl(28,3,w/2-90,h+1,-d/2+90,hole)}                           // 선 구멍
+  else if(it.type==='chair'){ // 회전의자: 바퀴 5개 + 가스 기둥 + 동그란 좌판 + 흰 고리 프레임 + 등판
+   const pad=mStd(def?0x86bfa9:it.color,{roughness:0.85}),wf=mStd(0xf4f4f2,{roughness:0.35,metalness:0.3}),sh=Math.min(450,h-250),R5=Math.min(w,d)/2-10;
+   for(let k=0;k<5;k++){const a=k*Math.PI*2/5,sp=box(R5,24,42,Math.cos(a)*R5/2,70,Math.sin(a)*R5/2,wf);sp.rotation.y=-a;
+    const wheel=new THREE.Mesh(new THREE.CylinderGeometry(26*M,26*M,22*M,14),wf);wheel.rotation.x=Math.PI/2;wheel.rotation.y=-a;wheel.position.set(Math.cos(a)*(R5-10)*M,26*M,Math.sin(a)*(R5-10)*M);wheel.castShadow=true;g.add(wheel)}
+   cyl(40,40,0,70,0,wf);cyl(22,sh-110,0,(sh+70)/2,0,wf);                  // 가운데 + 가스 기둥
+   const seat=new THREE.Mesh(new THREE.CylinderGeometry(Math.min(w,d)/2*0.82*M,Math.min(w,d)/2*0.8*M,70*M,28),pad);seat.position.set(0,(sh+10)*M,0);seat.castShadow=true;g.add(seat);
+   cyl(Math.min(w,d)/2*0.83,10,0,sh-28,0,wf);                            // 좌판 테두리
+   const top=h-30,bx=Math.min(w,d)/2*0.62;                               // 등판 위치(로컬 +x 쪽)
+   [-1,1].forEach(s=>cyl(11,top-sh,bx,(top+sh)/2,s*Math.min(w,d)*0.28,wf));
+   const tb=cyl(11,Math.min(w,d)*0.56,bx,top,0,wf);tb.rotation.x=Math.PI/2;
+   const back=new THREE.Mesh(new THREE.SphereGeometry(0.5,20,14),pad);back.scale.set(45*M,Math.min(320,top-sh-60)*M,Math.min(w,d)*0.5*M);back.position.set((bx-12)*M,(top-Math.min(320,top-sh-60)/2-20)*M,0);back.castShadow=true;g.add(back)}
+  else if(it.type==='storage'&&it.style==='kallax'){ // 칸 책장: 뒤판 없음, 바깥판 39 · 칸막이 16
+   const body=mStd(def?0xf4f3ef:it.color,{roughness:0.55}),t=39,m=16,cols=it.cols||1,rows=it.rows||1;
+   [-1,1].forEach(s=>box(t,h,d,s*(w/2-t/2),h/2,0,body));box(w-2*t,t,d,0,h-t/2,0,body);box(w-2*t,t,d,0,t/2,0,body);
+   const cw=(w-2*t-(cols-1)*m)/cols,chh=(h-2*t-(rows-1)*m)/rows;
+   for(let i=1;i<cols;i++)box(m,h-2*t,d,-w/2+t+i*cw+(i-1)*m+m/2,h/2,0,body);
+   for(let j=1;j<rows;j++)box(w-2*t,m,d,0,t+j*chh+(j-1)*m+m/2,0,body)}
   else if(it.type==='storage'){const body=mStd(def?0xf3f0e9:it.color,{roughness:0.6}),dark=mStd(0x9c968a),met=mStd(PAL.chrome,{roughness:0.3,metalness:0.6});
    const kind=/책장/.test(it.name)?'shelf':/옷장/.test(it.name)?'ward':/서랍/.test(it.name)?'drawer':(h>=1200?(d<=380?'shelf':'ward'):'drawer');
    if(kind==='shelf'){[-1,1].forEach(s=>box(18,h,d,s*(w/2-9),h/2,0,body));box(w,18,d,0,h-9,0,body);box(w,18,d,0,9,0,body);box(w,h,6,0,h/2,-(d/2-3),body);
