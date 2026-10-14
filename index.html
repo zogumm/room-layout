@@ -102,6 +102,8 @@ details .props{margin-top:8px}
     <button id="fDel" class="danger">삭제</button>
     <select id="fPreset" aria-label="추가할 가구"></select>
     <button id="fAdd">추가</button>
+    <label>가로<input type="number" id="fW" step="10" min="10" style="width:5.5em"></label>
+    <label>세로<input type="number" id="fD" step="10" min="10" style="width:5.5em"></label>
   </div>
   <div class="toolbar">
     <button id="btnFocus" class="primary">크게 보기</button>
@@ -113,7 +115,7 @@ details .props{margin-top:8px}
     <label><input type="checkbox" id="chkGrid" checked> 격자 100mm</label>
   </div>
   <canvas id="plan"></canvas>
-  <div class="hint">가구를 끌어서 이동 · 선택하면 벽까지 거리가 점선으로 표시 · PC에선 방향키 10mm(Shift 100mm), R 회전, Delete 삭제 · 커튼레일은 겹침 검사에서 빼요</div>
+  <div class="hint">가구를 끌어서 이동 · 누르면 생기는 파란 점을 끌면 크기 조절 · 선택하면 벽까지 거리가 점선으로 표시 · PC에선 방향키 10mm(Shift 100mm), R 회전, Delete 삭제 · 커튼레일은 겹침 검사에서 빼요</div>
   <div class="chips" id="chips"></div>
   <div class="msg" id="msg"></div>
 </section>
@@ -252,7 +254,10 @@ function draw(){
   if(R.W-x1>0)gap(x1,my,R.W,my,fmt(R.W-x1),X((x1+R.W)/2),Y(my)-8,false);
   if(y0>0)gap(mx,0,mx,y0,fmt(y0),X(mx)-8,Y(y0/2),true);
   if(R.D-y1>0)gap(mx,y1,mx,R.D,fmt(R.D-y1),X(mx)-8,Y((y1+R.D)/2),true);
-  ctx.setLineDash([])}
+  ctx.setLineDash([]);
+  // 크기 손잡이(오른쪽 위 모서리) — 끌면 가로·세로가 바뀜
+  ctx.beginPath();ctx.arc(X(x1),Y(y1),9,0,Math.PI*2);ctx.fillStyle=COL.accent;ctx.fill();ctx.lineWidth=2.5;ctx.strokeStyle='#fff';ctx.stroke();
+  if(drag&&drag.resize){ctx.font='600 12px '+MONO;ctx.fillStyle=COL.accent;ctx.textAlign='left';ctx.fillText(`${s.w}×${s.d}`,X(x1)+14,Y(y1)-12);ctx.textAlign='center'}}
  // 방 치수·문·창 글자
  ctx.font='600 12px '+MONO;ctx.fillStyle=COL.ink;ctx.fillText(fmt(R.W),X(R.W/2),Y(R.D+T)-34);
  ctx.save();ctx.translate(X(R.W+T)+18,Y(R.D/2));ctx.rotate(-Math.PI/2);ctx.fillText(fmt(R.D),0,0);ctx.restore();
@@ -263,8 +268,18 @@ function draw(){
 function pick(wx,wy){for(let i=S.items.length-1;i>=0;i--){const it=S.items[i],[x0,y0,x1,y1]=box(it),t=it.type==='rail'?60:0;if(wx>=x0-t&&wx<=x1+t&&wy>=y0-t&&wy<=y1+t)return it}return null}
 function toWorld(e){const p=cv.getBoundingClientRect();return[(e.clientX-p.left-OX)/sc,(OY-(e.clientY-p.top))/sc]}
 let drag=null;
-cv.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button!==0)return;const[wx,wy]=toWorld(e),it=pick(wx,wy);sel=it?it.id:null;if(it){drag={id:it.id,dx:wx-it.x,dy:wy-it.y};cv.setPointerCapture(e.pointerId);cv.classList.add('dragging')}refresh(false)});
-cv.addEventListener('pointermove',e=>{if(!drag)return;const it=byId(drag.id);if(!it){drag=null;return}const[wx,wy]=toWorld(e);it.x=snap(wx-drag.dx);it.y=snap(wy-drag.dy);clampIt(it);refresh(false);e.preventDefault()});
+// 선택한 가구의 손잡이를 눌렀는지(손가락 크기 고려해 반경 22px)
+function onHandle(e){const s=sel!=null&&byId(sel);if(!s)return null;const[, , x1,y1]=box(s),p=cv.getBoundingClientRect();return Math.hypot(e.clientX-p.left-X(x1),e.clientY-p.top-Y(y1))<22?s:null}
+cv.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button!==0)return;
+ const h=onHandle(e);if(h){drag={id:h.id,resize:true};cv.setPointerCapture(e.pointerId);refresh(false);return}
+ const[wx,wy]=toWorld(e),it=pick(wx,wy);sel=it?it.id:null;if(it){drag={id:it.id,dx:wx-it.x,dy:wy-it.y};cv.setPointerCapture(e.pointerId);cv.classList.add('dragging')}refresh(false)});
+cv.addEventListener('pointermove',e=>{if(!drag)return;const it=byId(drag.id);if(!it){drag=null;return}const[wx,wy]=toWorld(e);
+ if(drag.resize){const R=S.room,minD=it.type==='rail'?10:100;
+  const fw=Math.max(100,Math.min(snap(wx-it.x),R.W-it.x)),fd=Math.max(minD,Math.min(snap(wy-it.y),R.D-it.y)),turned=it.rot%180!==0;
+  if(it.type==='rail')it.w=turned?fd:fw;           // 커튼레일은 길이만
+  else if(turned){it.w=fd;it.d=fw}else{it.w=fw;it.d=fd}
+ }else{it.x=snap(wx-drag.dx);it.y=snap(wy-drag.dy);clampIt(it)}
+ refresh(false);e.preventDefault()});
 const endDrag=()=>{if(drag){drag=null;cv.classList.remove('dragging');save();if(remoteQueued){const q=remoteQueued;remoteQueued=null;applyRemote(q)}}};
 cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',endDrag);
 
@@ -272,8 +287,9 @@ cv.addEventListener('pointerup',endDrag);cv.addEventListener('pointercancel',end
 function renderChips(){const bad=badSet();$('chips').innerHTML=S.items.map(i=>`<span class="chip${i.id===sel?' sel':''}${bad.has(i.id)?' bad':''}" data-id="${i.id}">${esc(i.name)}</span>`).join('')}
 $('chips').addEventListener('click',e=>{const c=e.target.closest('.chip');if(c){sel=+c.dataset.id;refresh(false)}});
 const PF=['pName','pType','pW','pD','pH','pX','pY','pRot','pColor'];
-function renderProps(){const s=byId(sel);PF.forEach(id=>$(id).disabled=!s);if(!s){$('pName').value='';return}$('pName').value=s.name;$('pType').value=s.type;$('pW').value=s.w;$('pD').value=s.d;$('pH').value=s.h;$('pX').value=s.x;$('pY').value=s.y;$('pRot').value=s.rot;$('pColor').value=s.color}
+function renderProps(){const s=byId(sel);PF.forEach(id=>$(id).disabled=!s);$('fW').disabled=$('fD').disabled=!s;$('fW').value=s?s.w:'';$('fD').value=s?s.d:'';if(!s){$('pName').value='';return}$('pName').value=s.name;$('pType').value=s.type;$('pW').value=s.w;$('pD').value=s.d;$('pH').value=s.h;$('pX').value=s.x;$('pY').value=s.y;$('pRot').value=s.rot;$('pColor').value=s.color}
 PF.forEach(id=>$(id).addEventListener('change',()=>{const s=byId(sel);if(!s)return;s.name=$('pName').value.trim()||s.name;s.type=$('pType').value;s.w=num('pW',s.w,50);s.d=num('pD',s.d,10);s.h=num('pH',s.h,0);s.x=snap(num('pX',s.x,0));s.y=snap(num('pY',s.y,0));s.rot=+$('pRot').value;s.color=$('pColor').value;clampIt(s);refresh()}));
+['fW','fD'].forEach(id=>$(id).addEventListener('change',()=>{const s=byId(sel);if(!s)return;s.w=num('fW',s.w,50);s.d=num('fD',s.d,10);clampIt(s);refresh()}));
 const RF=['W','D','H','doorOff','doorW','winOff','winW','winSill','winHead'];
 function renderRoom(){RF.forEach(k=>$('r_'+k).value=S.room[k])}
 RF.forEach(k=>$('r_'+k).addEventListener('change',()=>{const R=S.room;RF.forEach(j=>R[j]=num('r_'+j,R[j],0));R.W=Math.max(1000,R.W);R.D=Math.max(1000,R.D);R.H=Math.max(2000,R.H);R.doorOff=Math.min(R.doorOff,R.D-100);R.doorW=Math.min(R.doorW,R.D-R.doorOff);R.winOff=Math.min(R.winOff,R.W-100);R.winW=Math.min(R.winW,R.W-R.winOff);R.winHead=Math.min(R.winHead,R.H);R.winSill=Math.min(R.winSill,R.winHead);S.items.forEach(clampIt);buildRoom();resetView();refresh()}));
