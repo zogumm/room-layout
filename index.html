@@ -177,13 +177,13 @@ details .props{margin-top:8px}
 const KEY='bedroom2_layout_v1';
 const FONT='"IBM Plex Sans KR","Malgun Gothic",sans-serif',MONO='"IBM Plex Mono",Consolas,monospace';
 const COL={paper:'#fbfaf6',ink:'#1e2a33',grid:'#e8e5dc',grid2:'#d4d1c6',accent:'#1f6f9f',warn:'#c8321e',win:'#2aa7c9',door:'#2e9e4f',muted:'#6b7680'};
-const TYPES={bed:['침대','#e3a067'],desk:['책상','#6f94bb'],chair:['의자','#8fb77c'],storage:['수납','#b8906a'],rail:['커튼레일','#b52fb0'],box:['기타','#9a9a9a']};
+const TYPES={bed:['침대','#e3a067'],desk:['책상','#6f94bb'],chair:['의자','#8fb77c'],storage:['수납','#b8906a'],rail:['커튼레일','#b52fb0'],partition:['파티션','#8d8a82'],box:['기타','#9a9a9a']};
 // [이름, W, D, H, 종류]
 // [이름, W, D, H, 종류, 추가속성] — 책상·의자·칸책장은 이케아 미케·회전의자·칼락스 공개 치수 기준(실측 아님)
 const PRESETS=[['침대(싱글 매트리스)',1900,1000,450,'bed'],['침대(슈퍼싱글)',2000,1100,450,'bed'],
  ['책상(미케형)',730,500,750,'desk'],['책상(큰)',1200,600,750,'desk'],['회전의자',500,500,900,'chair'],
  ['칸 책장 8칸',770,390,1470,'storage',{style:'kallax',cols:2,rows:4}],['칸 책장 16칸',1470,390,1470,'storage',{style:'kallax',cols:4,rows:4}],
- ['옷장',800,600,2000,'storage'],['서랍장',600,400,900,'storage'],['책장(선반형)',800,300,1800,'storage'],['커튼레일',2000,30,0,'rail'],['사용자 가구',600,600,600,'box']];
+ ['옷장',800,600,2000,'storage'],['서랍장',600,400,900,'storage'],['책장(선반형)',800,300,1800,'storage'],['커튼레일',2000,30,0,'rail'],['파티션(블라인드형)',900,40,1800,'partition'],['사용자 가구',600,600,600,'box']];
 // 칸 책장: 칸 하나 안쪽 335, 바깥판 39, 칸막이 16 → 칸 수로 바깥 치수 계산(4칸=1,466 ≈ 칼락스 1,470)
 const cubeSize=n=>n*335+2*39+(n-1)*16;
 let nextId=1;
@@ -301,7 +301,7 @@ function snapEdges(it,resize){const tol=12/sc,R=S.room,xs=[0,R.W],ys=[0,R.D];
  const[x0,y0,x1,y1]=box(it),turned=it.rot%180!==0;
  if(resize){const dx=best([x1],xs),dy=best([y1],ys),fw=x1-x0+dx,fd=y1-y0+dy;
   if(it.type==='rail'){if(turned)it.w=Math.max(100,fd);else it.w=Math.max(100,fw)}
-  else if(turned){it.w=Math.max(100,fd);it.d=Math.max(100,fw)}else{it.w=Math.max(100,fw);it.d=Math.max(100,fd)}}
+  else{const mn=it.type==='partition'?20:100;if(turned){it.w=Math.max(100,fd);it.d=Math.max(mn,fw)}else{it.w=Math.max(100,fw);it.d=Math.max(mn,fd)}}}
  else{it.x+=best([x0,x1],xs);it.y+=best([y0,y1],ys);clampIt(it)}}
 // 선택한 가구의 손잡이를 눌렀는지(손가락 크기 고려해 반경 22px)
 function onHandle(e){const s=sel!=null&&byId(sel);if(!s)return null;const[, , x1,y1]=box(s),p=cv.getBoundingClientRect();return Math.hypot(e.clientX-p.left-X(x1),e.clientY-p.top-Y(y1))<22?s:null}
@@ -309,7 +309,7 @@ cv.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button!==0)r
  const h=onHandle(e);if(h){drag={id:h.id,resize:true};cv.setPointerCapture(e.pointerId);refresh(false);return}
  const[wx,wy]=toWorld(e),it=pick(wx,wy);sel=it?it.id:null;if(it){drag={id:it.id,dx:wx-it.x,dy:wy-it.y};cv.setPointerCapture(e.pointerId);cv.classList.add('dragging')}refresh(false)});
 cv.addEventListener('pointermove',e=>{if(!drag)return;const it=byId(drag.id);if(!it){drag=null;return}const[wx,wy]=toWorld(e);
- if(drag.resize){const R=S.room,minD=it.type==='rail'?10:100;
+ if(drag.resize){const R=S.room,minD=it.type==='rail'?10:it.type==='partition'?20:100;
   const fw=Math.max(100,Math.min(snap(wx-it.x),R.W-it.x)),fd=Math.max(minD,Math.min(snap(wy-it.y),R.D-it.y)),turned=it.rot%180!==0;
   if(it.type==='rail')it.w=turned?fd:fw;           // 커튼레일은 길이만
   else if(turned){it.w=fd;it.d=fw}else{it.w=fw;it.d=fd}
@@ -490,6 +490,13 @@ function buildItems(){clearGroup(gItems);const bad=badSet(),R=S.room;
    else if(kind==='ward'){box(w,h,d,0,h/2,0,body);box(4,h-40,3,0,h/2,d/2+1,dark);[-1,1].forEach(s=>box(14,260,22,s*35,h*0.52,d/2+12,met));box(w,60,d+4,0,30,0,dark)}
    else{box(w,h,d,0,h/2,0,body);const n=Math.max(2,Math.round(h/240));for(let i=1;i<n;i++)box(w-16,4,3,0,i*h/n,d/2+1,dark);
     for(let i=0;i<n;i++)box(90,14,18,0,(i+0.5)*h/n,d/2+10,met)}}
+  else if(it.type==='partition'){ // 블라인드 파티션: 흰 틀 + 가로 날개(25mm 간격, 살짝 기울임) + 아래 막힘판. 약 500mm마다 칸 나눔
+   const fr=mStd(def?0xf4f3ef:it.color,{roughness:0.5}),slat=mStd(0xf8f8f6,{roughness:0.45}),st=40,kick=Math.min(260,h*0.15);
+   const n=Math.max(1,Math.round(w/500)),pw=(w-st*(n+1))/n;
+   for(let i=0;i<=n;i++)box(st,h,d,-w/2+st/2+i*(pw+st),h/2,0,fr);         // 세로 틀
+   box(w,st,d,0,h-st/2,0,fr);box(w,kick,d*0.8,0,kick/2,0,fr);box(w,st*0.6,d,0,kick+st*0.3,0,fr); // 위 틀 · 아래 막힘판 · 가로대
+   for(let i=0;i<n;i++){const cx=-w/2+st+pw/2+i*(pw+st);
+    for(let y=kick+st;y<h-st-10;y+=25){const s=box(pw,2,d*0.7,cx,y,0,slat);s.rotation.x=0.35;s.castShadow=false}}}
   else if(it.type==='rail'){const railM=mStd(0xf6f6f6,{roughness:0.35,metalness:0.3}),cur=mStd(0xffffff,{roughness:1,transparent:true,opacity:0.82,side:THREE.DoubleSide}),ch=R.H-70;
    box(w,22,32,0,R.H-11,0,railM);
    if($('chkCurtain').checked){const c=curtainMesh(w,ch,140,28,cur);c.position.set(0,(ch/2+20)*M,0);g.add(c)}
