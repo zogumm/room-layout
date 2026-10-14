@@ -220,7 +220,10 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 const hexA=(h,a)=>{const n=parseInt(h.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`};
 const fp=it=>it.rot%180?[it.d,it.w]:[it.w,it.d];
 const byId=id=>S.items.find(i=>i.id===id);
-function clampIt(it){const[fw,fd]=fp(it);it.x=Math.max(0,Math.min(it.x,Math.max(0,S.room.W-fw)));it.y=Math.max(0,Math.min(it.y,Math.max(0,S.room.D-fd)))}
+// 가구가 놓일 수 있는 구역: 방(0~D) 또는 발코니(D+벽120 ~ +balD). 가구 가운데가 벽을 넘으면 발코니로
+const WALL=120;
+function zoneOf(it){const R=S.room,[,fd]=fp(it);return R.balD>0&&it.y+fd/2>R.D+WALL/2?[R.D+WALL,R.D+WALL+R.balD]:[0,R.D]}
+function clampIt(it){const[fw,fd]=fp(it),[z0,z1]=zoneOf(it);it.x=Math.max(0,Math.min(it.x,Math.max(0,S.room.W-fw)));it.y=Math.max(z0,Math.min(it.y,Math.max(z0,z1-fd)))}
 const box=it=>{const[fw,fd]=fp(it);return[it.x,it.y,it.x+fw,it.y+fd]};
 function hit(a,b){const A=box(a),B=box(b);return A[0]<B[2]-1&&B[0]<A[2]-1&&A[1]<B[3]-1&&B[1]<A[3]-1}
 function badPairs(){const L=S.items.filter(i=>i.type!=='rail'),P=[];for(let i=0;i<L.length;i++)for(let j=i+1;j<L.length;j++)if(hit(L[i],L[j]))P.push([L[i],L[j]]);return P}
@@ -279,8 +282,9 @@ function draw(){
   const gap=(ax,ay,bx,by,label,tx,ty,rot)=>{seg(ax,ay,bx,by);ctx.save();ctx.translate(tx,ty);if(rot)ctx.rotate(-Math.PI/2);ctx.fillText(label,0,0);ctx.restore()};
   if(x0>0)gap(0,my,x0,my,fmt(x0),X(x0/2),Y(my)-8,false);
   if(R.W-x1>0)gap(x1,my,R.W,my,fmt(R.W-x1),X((x1+R.W)/2),Y(my)-8,false);
-  if(y0>0)gap(mx,0,mx,y0,fmt(y0),X(mx)-8,Y(y0/2),true);
-  if(R.D-y1>0)gap(mx,y1,mx,R.D,fmt(R.D-y1),X(mx)-8,Y((y1+R.D)/2),true);
+  const[zb,zt]=zoneOf(s); // 발코니에 있으면 발코니 벽까지 거리
+  if(y0>zb)gap(mx,zb,mx,y0,fmt(y0-zb),X(mx)-8,Y((zb+y0)/2),true);
+  if(zt-y1>0)gap(mx,y1,mx,zt,fmt(zt-y1),X(mx)-8,Y((y1+zt)/2),true);
   ctx.setLineDash([]);
   // 크기 손잡이(오른쪽 위 모서리) — 끌면 가로·세로가 바뀜
   ctx.beginPath();ctx.arc(X(x1),Y(y1),9,0,Math.PI*2);ctx.fillStyle=COL.accent;ctx.fill();ctx.lineWidth=2.5;ctx.strokeStyle='#fff';ctx.stroke();
@@ -298,7 +302,7 @@ function toWorld(e){const p=cv.getBoundingClientRect();return[(e.clientX-p.left-
 let drag=null;
 // 스냅: 가구 모서리가 다른 가구 모서리나 벽에 화면상 12px 안으로 오면 딱 붙임
 // resize=true면 오른쪽·위 모서리(손잡이 쪽)만 맞추고, 아니면 통째로 밀어서 맞춤
-function snapEdges(it,resize){const tol=12/sc,R=S.room,xs=[0,R.W],ys=[0,R.D];
+function snapEdges(it,resize){const tol=12/sc,R=S.room,xs=[0,R.W],ys=[0,R.D].concat(R.balD>0?[R.D+WALL,R.D+WALL+R.balD]:[]);
  S.items.forEach(o=>{if(o===it)return;const b=box(o);xs.push(b[0],b[2]);ys.push(b[1],b[3])});
  const best=(vals,cands)=>{let d=null;vals.forEach(v=>cands.forEach(c=>{const k=c-v;if(Math.abs(k)<tol&&(d===null||Math.abs(k)<Math.abs(d)))d=k}));return d||0};
  const[x0,y0,x1,y1]=box(it),turned=it.rot%180!==0;
@@ -328,7 +332,7 @@ cv.addEventListener('pointermove',e=>{if(cvPts.has(e.pointerId))cvPts.set(e.poin
  if(pan){const[x,y]=cvXY(e);if(view.z>1){view.px+=x-pan[0];view.py+=y-pan[1];draw()}pan=[x,y];return}
  if(!drag)return;const it=byId(drag.id);if(!it){drag=null;return}const[wx,wy]=toWorld(e);
  if(drag.resize){const R=S.room,minD=it.type==='rail'?10:it.type==='partition'?20:100;
-  const fw=Math.max(100,Math.min(snap(wx-it.x),R.W-it.x)),fd=Math.max(minD,Math.min(snap(wy-it.y),R.D-it.y)),turned=it.rot%180!==0;
+  const fw=Math.max(100,Math.min(snap(wx-it.x),R.W-it.x)),fd=Math.max(minD,Math.min(snap(wy-it.y),zoneOf(it)[1]-it.y)),turned=it.rot%180!==0;
   if(it.type==='rail')it.w=turned?fd:fw;           // 커튼레일은 길이만
   else if(turned){it.w=fd;it.d=fw}else{it.w=fw;it.d=fd}
   snapEdges(it,true);
@@ -431,7 +435,7 @@ let nearMats={};
 function slab(x0,x1,y0,y1,z0,z1,mat){const m=new THREE.Mesh(new THREE.BoxGeometry((x1-x0)*M,(z1-z0)*M,(y1-y0)*M),mat);m.position.set((x0+x1)/2*M,(z0+z1)/2*M,-(y0+y1)/2*M);return m}
 function clearGroup(g){while(g.children.length){const o=g.children.pop();o.traverse(c=>{if(c.geometry)c.geometry.dispose();if(c.material&&!c.material.userData.shared)c.material.dispose()})}}
 const mStd=(c,o)=>new THREE.MeshStandardMaterial(Object.assign({color:c,roughness:0.85,metalness:0},o||{}));
-function buildRoom(){clearGroup(gRoom);const R=S.room,T=100,H=R.H,W=wallMats,DH=Math.min(2100,H-100),sill=R.winSill,head=Math.min(R.winHead,H);
+function buildRoom(){clearGroup(gRoom);const R=S.room,T=WALL,H=R.H,W=wallMats,DH=Math.min(2100,H-100),sill=R.winSill,head=Math.min(R.winHead,H);
  const floor=slab(-T,R.W+T,-T,R.D+T,-60,0,floorMat);floor.receiveShadow=true;gRoom.add(floor);floorMat.map.repeat.set((R.W+2*T)/960,(R.D+2*T)/960);
  gRoom.add(slab(-T,0,-T,R.doorOff,0,H,W.W));gRoom.add(slab(-T,0,R.doorOff+R.doorW,R.D+T,0,H,W.W));gRoom.add(slab(-T,0,R.doorOff,R.doorOff+R.doorW,DH,H,W.W));
  gRoom.add(slab(R.W,R.W+T,-T,R.D+T,0,H,W.E));
@@ -448,7 +452,7 @@ function buildRoom(){clearGroup(gRoom);const R=S.room,T=100,H=R.H,W=wallMats,DH=
  // 발코니2: 바닥(타일색) + 양옆 벽 + 바깥쪽 낮은 벽(900) 위 창
  const balM=[];
  if(R.balD>0){const b0=R.D+T,b1=b0+R.balD,tile=mStd(0xd9d5cc,{roughness:0.9}),bw=mStd(0xeeebe4,{transparent:true,opacity:1});
-  const bf=slab(-T,R.W+T,b0,b1+T,-80,-20,tile);bf.receiveShadow=true;gRoom.add(bf);
+  const bf=slab(-T,R.W+T,b0,b1+T,-60,0,tile); // 방 바닥과 같은 높이(가구가 뜨지 않게)bf.receiveShadow=true;gRoom.add(bf);
   [slab(-T,0,b0,b1+T,0,H,bw),slab(R.W,R.W+T,b0,b1+T,0,H,bw),slab(0,R.W,b1,b1+T,0,900,bw),slab(0,R.W,b1,b1+T,head,H,bw)].forEach(m=>gRoom.add(m));
   gRoom.add(slab(150,R.W-150,b1+45,b1+55,900,head,glassMat));
   [[100,150],[R.W/2-25,R.W/2+25],[R.W-150,R.W-100]].forEach(([a,b])=>gRoom.add(slab(a,b,b1,b1+T,900,head,fr)));
