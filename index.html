@@ -91,8 +91,13 @@ details .props{margin-top:8px}
   <span class="note">휴먼시아 5단지 51형 · 안목 3,340×2,550은 분양 평면 추정값 · 단위 mm</span>
   <span class="spacer"></span>
   <span class="sync" id="sync">공유 저장소 연결 중…</span>
+  <button id="btnShareLink" class="primary">공유 링크 만들기</button>
   <button id="btnReset" class="danger">기본 배치로 초기화</button>
 </header>
+<div id="shareBox" hidden style="padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);display:grid;gap:6px">
+  <div class="hint" id="shareMsg"></div>
+  <input type="text" id="shareUrl" readonly style="width:100%;font:12px var(--mono)">
+</div>
 <main>
 <section id="planSec">
   <div class="toolbar focusbar">
@@ -220,7 +225,13 @@ async function push(){if(writing){again=true;return}const body=JSON.stringify(S)
   if(!r.ok)throw new Error(r.error||'save_failed');lastSent=body;serverRev=r.rev;dirty=false;setSync('저장됨 · 모두 같은 배치를 봐요','ok')}
  catch(e){setSync('저장 실패 — 잠시 후 다시 시도해요','bad');setTimeout(push,3000+Math.random()*2000)}
  finally{writing=false;if(again){again=false;push()}}}
-let S=load()||defaults(),sel=null;
+// 공유 링크: 배치 전체를 주소 '#L=' 뒤에 담음(서버 없이 링크만으로 같은 배치를 열 수 있게)
+const enc=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+function readShareLink(){const m=location.hash.match(/^#L=([A-Za-z0-9_-]+)/);if(!m)return null;
+ try{let b=m[1].replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';const s=JSON.parse(decodeURIComponent(escape(atob(b))));
+  if(s&&Array.isArray(s.items)&&s.room){nextId=Math.max(0,...s.items.map(i=>i.id))+1;return s}}catch(e){}return null}
+const shared0=readShareLink();
+let S=shared0||load()||defaults(),sel=null;
 // 예전에 저장된 배치에 없던 항목 채우기: 창 종류(발코니창)·발코니 깊이
 function normRoom(){const R=S.room;if(!R.winType){R.winType='balcony';R.winSill=0;R.winHead=Math.min(2200,R.H-50)}if(R.balD==null)R.balD=1200;
  const dflt={balFloor:'tile',balStep:0,balWinSill:900,balWinHead:Math.min(2200,R.H-50),balWinOff:150,balWinW:R.W-300};
@@ -445,6 +456,15 @@ async function pull(){if(!EXEC_URL||pulling||dirty||writing||document.hidden)ret
 async function connectDb(){
  if(!EXEC_URL){setSync('저장 주소 미설정 — 내 기기에만 저장','bad');return}
  await pull();setInterval(pull,4000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()})}
+function makeShareLink(){const url=location.origin+location.pathname+'#L='+enc(S),box=$('shareBox'),inp=$('shareUrl');
+ box.hidden=false;inp.value=url;
+ const ok=()=>{$('shareMsg').textContent='공유 링크를 복사했어요 — 카톡 등에 붙여넣어 보내면, 받은 사람이 이 배치 그대로 열어요. (받은 사람이 고친 건 그 사람 기기에만 저장돼요)'};
+ const fb=()=>{inp.focus();inp.select();$('shareMsg').textContent='자동 복사가 막혀서 주소를 선택해 뒀어요 — 길게 눌러 복사해서 보내세요.'};
+ try{navigator.clipboard.writeText(url).then(ok,fb)}catch(e){fb()}}
+$('btnShareLink').onclick=makeShareLink;
+// 공유 링크로 들어온 경우: 이 기기에 저장하고 안내 + 주소에서 #L= 지우기(새로고침해도 내 수정이 남게)
+if(shared0){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+ setTimeout(()=>{note('공유받은 배치를 열었어요 — 이 기기에 저장됐고, 고친 내용은 보낸 사람 배치에 영향을 주지 않아요');try{history.replaceState(null,'',location.pathname)}catch(e){}},0)}
 let resetArmed=0;
 $('btnReset').onclick=()=>{const b=$('btnReset');if(Date.now()-resetArmed<3000){S=defaults();sel=null;resetArmed=0;b.textContent='기본 배치로 초기화';buildRoom();resetView();refresh()}else{resetArmed=Date.now();b.textContent='정말 초기화? 다시 누르세요';setTimeout(()=>{if(Date.now()-resetArmed>=3000)b.textContent='기본 배치로 초기화'},3200)}};
 
