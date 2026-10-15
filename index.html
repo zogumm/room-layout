@@ -184,7 +184,7 @@ details .props{margin-top:8px}
     <label><input type="checkbox" id="chkCurtain"> 커튼 치기</label>
     <label><input type="checkbox" id="chkWalls" checked> 앞쪽 벽 투명</label>
     <button id="btnView">시점 초기화</button>
-    <span class="hint">끌어서 회전 · 휠 또는 두 손가락으로 확대/축소</span>
+    <span class="hint">한 손가락 회전 · 두 손가락 벌리기 확대 · 두 손가락 같이 끌기(PC는 오른쪽 버튼) 위아래·좌우 이동</span>
   </div>
   <canvas id="v3d"></canvas>
   <div class="legend" id="legend"></div>
@@ -228,8 +228,11 @@ async function push(){if(writing){again=true;return}const body=JSON.stringify(S)
  finally{writing=false;if(again){again=false;push()}}}
 // 공유 링크: 배치 전체를 주소 '#L=' 뒤에 담음(서버 없이 링크만으로 같은 배치를 열 수 있게)
 const enc=o=>btoa(unescape(encodeURIComponent(JSON.stringify(o)))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
-function readShareLink(){const m=location.hash.match(/^#L=([A-Za-z0-9_-]+)/);if(!m)return null;
- try{let b=m[1].replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';const s=JSON.parse(decodeURIComponent(escape(atob(b))));
+// 카톡 등 앱 브라우저가 주소의 '#' 뒤를 버리는 경우가 있어 '?L=' 를 먼저 보고, 예전 '#L=' 링크도 계속 읽음
+function readShareLink(){let v=null;try{v=new URLSearchParams(location.search).get('L')}catch(e){}
+ if(!v){const m=location.hash.match(/^#L=([A-Za-z0-9_-]+)/);v=m&&m[1]}
+ if(!v)return null;
+ try{let b=v.replace(/[^A-Za-z0-9_-]/g,'').replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';const s=JSON.parse(decodeURIComponent(escape(atob(b))));
   if(s&&Array.isArray(s.items)&&s.room){nextId=Math.max(0,...s.items.map(i=>i.id))+1;return s}}catch(e){}return null}
 const shared0=readShareLink();
 let S=shared0||load()||defaults(),sel=null;
@@ -489,7 +492,7 @@ async function pull(){if(!EXEC_URL||pulling||dirty||writing||document.hidden)ret
 async function connectDb(){
  if(!EXEC_URL){setSync('저장 주소 미설정 — 내 기기에만 저장','bad');return}
  await pull();setInterval(pull,4000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()})}
-function makeShareLink(){const url=location.origin+location.pathname+'#L='+enc(S),box=$('shareBox'),inp=$('shareUrl');
+function makeShareLink(){const url=location.origin+location.pathname+'?L='+enc(S),box=$('shareBox'),inp=$('shareUrl');
  box.hidden=false;inp.value=url;
  const ok=()=>{$('shareMsg').textContent='공유 링크를 복사했어요 — 카톡 등에 붙여넣어 보내면, 받은 사람이 이 배치 그대로 열어요. (받은 사람이 고친 건 그 사람 기기에만 저장돼요)'};
  const fb=()=>{inp.focus();inp.select();$('shareMsg').textContent='자동 복사가 막혀서 주소를 선택해 뒀어요 — 길게 눌러 복사해서 보내세요.'};
@@ -653,13 +656,21 @@ function size3D(){let w,h;
  if(document.body.classList.contains('focus3d')){c3.style.height='';w=c3.clientWidth||400;h=c3.clientHeight||300}
  else{w=c3.clientWidth||400;h=Math.round(w*0.75);c3.style.height=h+'px'}
  renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();render3D()}
-// 회전(한 손가락/마우스) · 확대(휠, 두 손가락 벌리기)
-const pts=new Map();let pinchD=0;
+// 한 손가락/마우스 왼쪽 = 회전 · 두 손가락 벌리기/휠 = 확대 · 두 손가락 같이 끌기/마우스 오른쪽 = 이동(위아래·좌우)
+const pts=new Map();let pinchD=0,pinchM=null,rpan=false;
 const dist=()=>{const a=[...pts.values()];return Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1])};
-c3.addEventListener('pointerdown',e=>{pts.set(e.pointerId,[e.clientX,e.clientY]);c3.setPointerCapture(e.pointerId);if(pts.size===2)pinchD=dist()});
+const midp=()=>{const a=[...pts.values()];return[(a[0][0]+a[1][0])/2,(a[0][1]+a[1][1])/2]};
+// 화면에서 dx,dy(px)만큼 끌면 방이 손가락을 따라오도록 보는 점(target)을 반대로 옮김 — 위아래는 높이, 좌우는 화면 옆 방향
+function pan3D(dx,dy){const k=cam.r*0.0016;target.y=Math.min(3,Math.max(-1.5,target.y+dy*k));
+ target.x-=Math.cos(cam.theta)*dx*k;target.z+=Math.sin(cam.theta)*dx*k;updateCam()}
+c3.addEventListener('contextmenu',e=>e.preventDefault());
+c3.addEventListener('pointerdown',e=>{pts.set(e.pointerId,[e.clientX,e.clientY]);try{c3.setPointerCapture(e.pointerId)}catch(err){}
+ rpan=e.pointerType==='mouse'&&e.button===2;if(pts.size===2){pinchD=dist();pinchM=midp()}});
 c3.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;e.preventDefault();const p=pts.get(e.pointerId);pts.set(e.pointerId,[e.clientX,e.clientY]);
- if(pts.size>=2){const d=dist();if(pinchD>0&&d>0)cam.r*=pinchD/d;pinchD=d}else{cam.theta-=(e.clientX-p[0])*0.008;cam.phi-=(e.clientY-p[1])*0.008}updateCam()});
-const orbEnd=e=>{pts.delete(e.pointerId);pinchD=0};
+ if(pts.size>=2){const d=dist(),m=midp();if(pinchD>0&&d>0)cam.r*=pinchD/d;pinchD=d;if(pinchM)pan3D(m[0]-pinchM[0],m[1]-pinchM[1]);pinchM=m;updateCam();return}
+ if(rpan){pan3D(e.clientX-p[0],e.clientY-p[1]);return}
+ cam.theta-=(e.clientX-p[0])*0.008;cam.phi-=(e.clientY-p[1])*0.008;updateCam()});
+const orbEnd=e=>{pts.delete(e.pointerId);pinchD=0;pinchM=null;if(!pts.size)rpan=false};
 c3.addEventListener('pointerup',orbEnd);c3.addEventListener('pointercancel',orbEnd);
 c3.addEventListener('wheel',e=>{e.preventDefault();cam.r*=1+Math.sign(e.deltaY)*0.1;updateCam()},{passive:false});
 $('btnView').onclick=resetView;
