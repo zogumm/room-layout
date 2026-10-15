@@ -576,7 +576,9 @@ function curtainMesh(width,height,per,amp,mat){const g=new THREE.PlaneGeometry(w
  for(let i=0;i<p.count;i++)p.setZ(i,amp*M*Math.sin(p.getX(i)/(per*M)*Math.PI*2));g.computeVertexNormals();const m=new THREE.Mesh(g,mat);m.castShadow=true;return m}
 function buildItems(){clearGroup(gItems);const bad=badSet(),R=S.room;
  S.items.forEach(it=>{const[fw,fd]=fp(it),g=new THREE.Group(),inBal=R.balD>0&&zoneOf(it)[0]>0;
-  g.position.set((it.x+fw/2)*M,inBal?-(R.balStep||0)*M:0,-(it.y+fd/2)*M); // 발코니 가구는 단차만큼 아래g.rotation.y=it.rot*Math.PI/180;
+  // 발코니 가구는 단차만큼 아래. 회전은 2D와 같은 각도(반시계 = +)
+  g.position.set((it.x+fw/2)*M,inBal?-(R.balStep||0)*M:0,-(it.y+fd/2)*M);
+  g.rotation.y=it.rot*Math.PI/180;
   const w=it.w,d=it.d,h=it.h,def=isDefColor(it);
   const box=(bw,bh,bd,x,y,z,m)=>{const me=new THREE.Mesh(new THREE.BoxGeometry(bw*M,bh*M,bd*M),m);me.position.set(x*M,y*M,z*M);me.castShadow=me.receiveShadow=true;g.add(me);return me};
   const cyl=(r,ch,x,y,z,m)=>{const me=new THREE.Mesh(new THREE.CylinderGeometry(r*M,r*M,ch*M,14),m);me.position.set(x*M,y*M,z*M);me.castShadow=true;g.add(me);return me};
