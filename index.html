@@ -22,6 +22,7 @@
   --bg:#161b1e; --fg:#e4e8e6; --muted:#9aa5aa; --line:#2c3439; --panel:#1e2529; --panel2:#262e33;
   --accent:#5aa7d8; --accent-fg:#0d1418; --warn:#f06a56; color-scheme:dark}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.5}
 header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
 header h1{font-size:1.05rem;margin:0}
@@ -107,7 +108,7 @@ details .props{margin-top:8px}
     <button id="fDel" class="danger">삭제</button>
     <select id="fPreset" aria-label="추가할 가구"></select>
     <button id="fAdd">추가</button>
-    <button data-zoom="in" aria-label="평면 확대">＋</button><button data-zoom="out" aria-label="평면 축소">－</button><button data-zoom="fit">맞춤</button>
+    <button data-zoom="in" aria-label="평면 확대">＋</button><button data-zoom="out" aria-label="평면 축소">－</button><button data-zoom="fit">맞춤</button><button data-measure>치수선</button><button data-dimclear>치수 지우기</button>
     <label>가로<input type="number" id="fW" step="10" min="10" style="width:5.5em"></label>
     <label>세로<input type="number" id="fD" step="10" min="10" style="width:5.5em"></label>
     <label>높이<input type="number" id="fH" step="10" min="0" style="width:5.5em"></label>
@@ -122,7 +123,7 @@ details .props{margin-top:8px}
     <button id="btnDup">복제</button>
     <button id="btnDel" class="danger">삭제</button>
     <label><input type="checkbox" id="chkGrid" checked> 격자 100mm</label>
-    <button data-zoom="in" aria-label="평면 확대">＋</button><button data-zoom="out" aria-label="평면 축소">－</button><button data-zoom="fit">맞춤</button>
+    <button data-zoom="in" aria-label="평면 확대">＋</button><button data-zoom="out" aria-label="평면 축소">－</button><button data-zoom="fit">맞춤</button><button data-measure>치수선</button><button data-dimclear>치수 지우기</button>
   </div>
   <canvas id="plan"></canvas>
   <div class="hint">두 손가락·휠로 확대, 빈 곳을 끌면 이동 · 가구를 끌어서 이동 · 누르면 생기는 파란 점을 끌면 크기 조절 · 선택하면 벽까지 거리가 점선으로 표시 · PC에선 방향키 10mm(Shift 100mm), R 회전, Delete 삭제 · 각도 칸·슬라이더로 자유 회전(PC는 Shift+휠 1°씩) · 커튼레일은 겹침 검사에서 빼요</div>
@@ -195,7 +196,7 @@ details .props{margin-top:8px}
 'use strict';
 const KEY='bedroom2_layout_v1';
 const FONT='"IBM Plex Sans KR","Malgun Gothic",sans-serif',MONO='"IBM Plex Mono",Consolas,monospace';
-const COL={paper:'#fbfaf6',ink:'#1e2a33',grid:'#e8e5dc',grid2:'#d4d1c6',accent:'#1f6f9f',warn:'#c8321e',win:'#2aa7c9',door:'#2e9e4f',muted:'#6b7680'};
+const COL={paper:'#fbfaf6',ink:'#1e2a33',grid:'#e8e5dc',grid2:'#d4d1c6',accent:'#1f6f9f',warn:'#c8321e',dim:'#c2410c',win:'#2aa7c9',door:'#2e9e4f',muted:'#6b7680'};
 const TYPES={bed:['침대','#e3a067'],desk:['책상','#6f94bb'],chair:['의자','#8fb77c'],storage:['수납','#b8906a'],rail:['커튼레일','#b52fb0'],partition:['파티션','#8d8a82'],box:['기타','#9a9a9a']};
 // [이름, W, D, H, 종류]
 // [이름, W, D, H, 종류, 추가속성] — 책상·의자·칸책장은 이케아 미케·회전의자·칼락스 공개 치수 기준(실측 아님)
@@ -233,7 +234,7 @@ function readShareLink(){const m=location.hash.match(/^#L=([A-Za-z0-9_-]+)/);if(
 const shared0=readShareLink();
 let S=shared0||load()||defaults(),sel=null;
 // 예전에 저장된 배치에 없던 항목 채우기: 창 종류(발코니창)·발코니 깊이
-function normRoom(){const R=S.room;if(!R.winType){R.winType='balcony';R.winSill=0;R.winHead=Math.min(2200,R.H-50)}if(R.balD==null)R.balD=1200;
+function normRoom(){const R=S.room;if(!Array.isArray(S.dims))S.dims=[];if(!R.winType){R.winType='balcony';R.winSill=0;R.winHead=Math.min(2200,R.H-50)}if(R.balD==null)R.balD=1200;
  const dflt={balFloor:'tile',balStep:0,balWinSill:900,balWinHead:Math.min(2200,R.H-50),balWinOff:150,balWinW:R.W-300};
  for(const k in dflt)if(R[k]==null)R[k]=dflt[k]}
 normRoom();
@@ -323,16 +324,28 @@ function draw(){
  const s=sel&&byId(sel);
  if(s){const[x0,y0,x1,y1]=box(s),mx=(x0+x1)/2,my=(y0+y1)/2;ctx.setLineDash([4,3]);ctx.strokeStyle=COL.accent;ctx.lineWidth=1;ctx.fillStyle=COL.accent;ctx.font='600 11px '+MONO;
   const gap=(ax,ay,bx,by,label,tx,ty,rot)=>{seg(ax,ay,bx,by);ctx.save();ctx.translate(tx,ty);if(rot)ctx.rotate(-Math.PI/2);ctx.fillText(label,0,0);ctx.restore()};
-  if(x0>0)gap(0,my,x0,my,fmt(x0),X(x0/2),Y(my)-8,false);
-  if(R.W-x1>0)gap(x1,my,R.W,my,fmt(R.W-x1),X((x1+R.W)/2),Y(my)-8,false);
-  const[zb,zt]=zoneOf(s); // 발코니에 있으면 발코니 벽까지 거리
-  if(y0>zb)gap(mx,zb,mx,y0,fmt(y0-zb),X(mx)-8,Y((zb+y0)/2),true);
-  if(zt-y1>0)gap(mx,y1,mx,zt,fmt(zt-y1),X(mx)-8,Y((y1+zt)/2),true);
+  // 네 방향으로 가장 가까운 가구 또는 벽까지(복도 폭·남은 폭 확인용). 커튼레일은 천장이라 제외
+  const[zb,zt]=zoneOf(s),ob=S.items.filter(o=>o!==s&&o.type!=='rail').map(box);
+  let gl=0,gr=R.W,gd=zb,gu=zt;
+  ob.forEach(b=>{if(b[1]<my&&b[3]>my){if(b[2]<=x0+1)gl=Math.max(gl,b[2]);if(b[0]>=x1-1)gr=Math.min(gr,b[0])}
+   if(b[0]<mx&&b[2]>mx){if(b[3]<=y0+1)gd=Math.max(gd,b[3]);if(b[1]>=y1-1)gu=Math.min(gu,b[1])}});
+  if(x0-gl>0)gap(gl,my,x0,my,fmt(x0-gl),X((gl+x0)/2),Y(my)-8,false);
+  if(gr-x1>0)gap(x1,my,gr,my,fmt(gr-x1),X((x1+gr)/2),Y(my)-8,false);
+  if(y0-gd>0)gap(mx,gd,mx,y0,fmt(y0-gd),X(mx)-8,Y((gd+y0)/2),true);
+  if(gu-y1>0)gap(mx,y1,mx,gu,fmt(gu-y1),X(mx)-8,Y((y1+gu)/2),true);
   ctx.setLineDash([]);
   // 크기 손잡이: 가구 자기 모서리(가로 끝·세로 끝)에 붙어 같이 돌아감 — 끌면 반대 모서리를 고정한 채 늘어남
   const[hx,hy]=toW(s,s.w/2,s.d/2);
   ctx.beginPath();ctx.arc(X(hx),Y(hy),9,0,Math.PI*2);ctx.fillStyle=COL.accent;ctx.fill();ctx.lineWidth=2.5;ctx.strokeStyle='#fff';ctx.stroke();
   if(drag&&(drag.resize||drag.rot)){ctx.font='600 12px '+MONO;ctx.fillStyle=COL.accent;ctx.textAlign='left';ctx.fillText(drag.resize?`${s.w}×${s.d}`:`${s.rot.toFixed(2)}°`,X(hx)+14,Y(hy)-12);ctx.textAlign='center'}}
+ // 치수선(저장된 것 + 그리는 중인 것): 선 + 양끝 짧은 눈금 + 가운데 길이
+ const dl=(S.dims||[]).slice();if(mStart&&mHover)dl.push({x1:mStart[0],y1:mStart[1],x2:mHover[0],y2:mHover[1],pv:true});
+ dl.forEach(d=>{const ax=X(d.x1),ay=Y(d.y1),bx=X(d.x2),by=Y(d.y2),L=Math.hypot(d.x2-d.x1,d.y2-d.y1);if(L<1)return;
+  const ul=Math.hypot(bx-ax,by-ay)||1,nx=-(by-ay)/ul*6,ny=(bx-ax)/ul*6;
+  ctx.strokeStyle=COL.dim;ctx.lineWidth=d.pv?1:1.6;ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.moveTo(ax-nx,ay-ny);ctx.lineTo(ax+nx,ay+ny);ctx.moveTo(bx-nx,by-ny);ctx.lineTo(bx+nx,by+ny);ctx.stroke();
+  const t=fmt(L),cx=(ax+bx)/2,cy=(ay+by)/2;ctx.font='600 12px '+MONO;const tw=ctx.measureText(t).width+10;
+  ctx.fillStyle='rgba(255,255,255,0.93)';ctx.fillRect(cx-tw/2,cy-9,tw,18);ctx.fillStyle=COL.dim;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(t,cx,cy)});
+ if(mStart){ctx.fillStyle=COL.dim;ctx.beginPath();ctx.arc(X(mStart[0]),Y(mStart[1]),4,0,Math.PI*2);ctx.fill()}
  // 방 치수·문·창 글자
  const topY=R.D+(R.balD>0?T+R.balD+T:T);
  ctx.font='600 12px '+MONO;ctx.fillStyle=COL.ink;ctx.fillText(fmt(R.W),X(R.W/2),Y(topY)-34);
@@ -354,6 +367,24 @@ function snapEdges(it,resize){const tol=12/sc,R=S.room,xs=[0,R.W],ys=[0,R.D].con
  it.x+=best([x0,x1],xs);it.y+=best([y0,y1],ys);clampIt(it)}
 // 선택한 가구의 손잡이를 눌렀는지(손가락 크기 고려해 반경 22px)
 function onHandle(e){const s=sel!=null&&byId(sel);if(!s)return null;const[hx,hy]=toW(s,s.w/2,s.d/2),p=cv.getBoundingClientRect();return Math.hypot(e.clientX-p.left-X(hx),e.clientY-p.top-Y(hy))<22?s:null}
+// 치수선 도구: 켜고 두 점을 차례로 누르면 치수선 저장. 점은 벽·가구 모서리에 붙고, 가로·세로에 가까우면 반듯하게
+let measure=false,mStart=null,mHover=null;
+function snapPt(wx,wy){const tol=12/sc,R=S.room,xs=[0,R.W],ys=[0,R.D].concat(R.balD>0?[R.D+WALL,R.D+WALL+R.balD]:[]);
+ S.items.forEach(o=>{const b=box(o);xs.push(b[0],b[2]);ys.push(b[1],b[3])});
+ let bx=wx,by=wy,ex=tol,ey=tol;xs.forEach(c=>{const k=Math.abs(c-wx);if(k<ex){ex=k;bx=c}});ys.forEach(c=>{const k=Math.abs(c-wy);if(k<ey){ey=k;by=c}});
+ if(mStart){const dx=Math.abs(bx-mStart[0]),dy=Math.abs(by-mStart[1]);if(dx>3*dy)by=mStart[1];else if(dy>3*dx)bx=mStart[0]}
+ return[r2(bx),r2(by)]}
+function measureDown(e){const[mx,my]=cvXY(e);
+ if(!mStart){const k=(S.dims||[]).findIndex(d=>Math.hypot(mx-X((d.x1+d.x2)/2),my-Y((d.y1+d.y2)/2))<16);
+  if(k>=0){S.dims.splice(k,1);refresh();note('치수선을 지웠어요');return}}
+ const[wx,wy]=toWorld(e),p=snapPt(wx,wy);
+ if(!mStart){mStart=p;mHover=p;draw();note('끝점을 누르세요 (가로·세로에 가까우면 반듯하게 맞춰져요)');return}
+ if(Math.hypot(p[0]-mStart[0],p[1]-mStart[1])>5)S.dims.push({x1:mStart[0],y1:mStart[1],x2:p[0],y2:p[1]});
+ mStart=null;mHover=null;refresh();note('치수선을 그렸어요 — 계속 그리거나, 치수선 버튼을 다시 눌러 끄세요')}
+function setMeasure(on){measure=on;mStart=null;mHover=null;document.querySelectorAll('[data-measure]').forEach(b=>b.classList.toggle('primary',on));
+ cv.style.cursor=on?'crosshair':'';draw();note(on?'치수선: 시작점을 누르세요 (치수 글자를 누르면 지워져요)':'치수선 끔')}
+document.addEventListener('click',e=>{if(e.target.closest('[data-measure]'))setMeasure(!measure);
+ if(e.target.closest('[data-dimclear]')){S.dims=[];mStart=null;refresh();note('치수선을 모두 지웠어요')}});
 // 확대: (mx,my) 화면 점을 기준으로 배율 nz로 — 그 점 아래의 도면 위치가 그대로 남게 이동량을 다시 계산
 function zoomAt(mx,my,nz){nz=Math.min(8,Math.max(1,nz));const s0=sc/view.z,wx=(mx-OX)/sc,wy=(OY-my)/sc,oxb=OX-view.px,oyb=OY-view.py;
  view.z=nz;if(nz===1){view.px=0;view.py=0}else{view.px=mx-oxb-wx*s0*nz;view.py=my-oyb+wy*s0*nz}draw()}
@@ -364,6 +395,7 @@ cv.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button!==0)r
  cvPts.set(e.pointerId,cvXY(e));try{cv.setPointerCapture(e.pointerId)}catch(err){} // 실패해도 끌기는 계속
  if(cvPts.size===2){ // 두 손가락: 끌던 가구는 놓고 확대 모드로
   if(drag)endDrag();pan=null;const[a,b]=[...cvPts.values()];pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1]),m:[(a[0]+b[0])/2,(a[1]+b[1])/2]};return}
+ if(measure){measureDown(e);return}
  const h=onHandle(e);if(h){drag={id:h.id,resize:true,anchor:toW(h,-h.w/2,-h.d/2)};refresh(false);return}
  const[wx,wy]=toWorld(e),it=pick(wx,wy);sel=it?it.id:null;
  if(it){drag={id:it.id,dx:wx-it.x,dy:wy-it.y};cv.classList.add('dragging')}else pan=cvXY(e); // 빈 곳은 화면 이동
@@ -371,6 +403,7 @@ cv.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button!==0)r
 cv.addEventListener('pointermove',e=>{if(cvPts.has(e.pointerId))cvPts.set(e.pointerId,cvXY(e));
  if(pinch&&cvPts.size>=2){const[a,b]=[...cvPts.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]),m=[(a[0]+b[0])/2,(a[1]+b[1])/2];
   view.px+=m[0]-pinch.m[0];view.py+=m[1]-pinch.m[1];draw();if(pinch.d>0)zoomAt(m[0],m[1],view.z*d/pinch.d);pinch.d=d;pinch.m=m;e.preventDefault();return}
+ if(measure){if(mStart){const[wx,wy]=toWorld(e);mHover=snapPt(wx,wy);draw()}return}
  if(pan){const[x,y]=cvXY(e);if(view.z>1){view.px+=x-pan[0];view.py+=y-pan[1];draw()}pan=[x,y];return}
  if(!drag)return;const it=byId(drag.id);if(!it){drag=null;return}const[wx,wy]=toWorld(e);
  if(drag.resize){const minD=it.type==='rail'?10:it.type==='partition'?20:100,[ax,ay]=drag.anchor,[sx,sy]=snapEdges(it,[wx,wy]);
