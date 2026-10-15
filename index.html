@@ -106,6 +106,8 @@ details .props{margin-top:8px}
     <label>가로<input type="number" id="fW" step="10" min="10" style="width:5.5em"></label>
     <label>세로<input type="number" id="fD" step="10" min="10" style="width:5.5em"></label>
     <label>높이<input type="number" id="fH" step="10" min="0" style="width:5.5em"></label>
+    <label>각도<input type="number" id="fRot" step="0.01" min="0" max="360" style="width:6em"></label>
+    <input type="range" id="fRotR" min="0" max="360" step="0.01" style="width:10em" aria-label="회전 슬라이더">
   </div>
   <div class="toolbar">
     <button id="btnFocus" class="primary">크게 보기</button>
@@ -118,7 +120,7 @@ details .props{margin-top:8px}
     <button data-zoom="in" aria-label="평면 확대">＋</button><button data-zoom="out" aria-label="평면 축소">－</button><button data-zoom="fit">맞춤</button>
   </div>
   <canvas id="plan"></canvas>
-  <div class="hint">두 손가락·휠로 확대, 빈 곳을 끌면 이동 · 가구를 끌어서 이동 · 누르면 생기는 파란 점을 끌면 크기 조절 · 선택하면 벽까지 거리가 점선으로 표시 · PC에선 방향키 10mm(Shift 100mm), R 회전, Delete 삭제 · 커튼레일은 겹침 검사에서 빼요</div>
+  <div class="hint">두 손가락·휠로 확대, 빈 곳을 끌면 이동 · 가구를 끌어서 이동 · 누르면 생기는 파란 점을 끌면 크기 조절 · 선택하면 벽까지 거리가 점선으로 표시 · PC에선 방향키 10mm(Shift 100mm), R 회전, Delete 삭제 · 각도 칸·슬라이더로 자유 회전(PC는 Shift+휠 1°씩) · 커튼레일은 겹침 검사에서 빼요</div>
   <div class="chips" id="chips"></div>
   <div class="msg" id="msg"></div>
 </section>
@@ -132,7 +134,8 @@ details .props{margin-top:8px}
     <label>높이 H<input type="number" id="pH" step="10" min="0"></label>
     <label>X (서쪽 벽에서)<input type="number" id="pX" step="10" min="0"></label>
     <label>Y (남쪽 벽에서)<input type="number" id="pY" step="10" min="0"></label>
-    <label>회전<select id="pRot"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+    <label>회전 각도 (°)<input type="number" id="pRot" step="0.01" min="0" max="360"></label>
+    <label class="wide">회전 슬라이더 (0~360°)<input type="range" id="pRotR" min="0" max="360" step="0.01"></label>
     <label>색<input type="color" id="pColor"></label>
     <label>칸 가로 수 (칸 책장)<input type="number" id="pCols" min="1" max="8" step="1"></label>
     <label>칸 세로 수 (칸 책장)<input type="number" id="pRows" min="1" max="8" step="1"></label>
@@ -218,14 +221,27 @@ const snap=v=>Math.round(v/10)*10;
 const fmt=n=>Math.round(n).toLocaleString('ko-KR');
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const hexA=(h,a)=>{const n=parseInt(h.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`};
-const fp=it=>it.rot%180?[it.d,it.w]:[it.w,it.d];
+// 회전한 가구가 차지하는 바깥 사각형(가로·세로). x,y는 이 사각형의 남서 꼭짓점. 0·90·180·270°면 예전과 같음
+const r2=v=>Math.round(v*100)/100;
+const fp=it=>{const a=it.rot*Math.PI/180,c=Math.abs(Math.cos(a)),s=Math.abs(Math.sin(a));return[r2(it.w*c+it.d*s),r2(it.w*s+it.d*c)]};
+// 가구 자기 좌표(가운데 기준 lx,ly) ↔ 도면 좌표
+function toW(it,lx,ly){const[fw,fd]=fp(it),cx=it.x+fw/2,cy=it.y+fd/2,a=it.rot*Math.PI/180;return[cx+lx*Math.cos(a)-ly*Math.sin(a),cy+lx*Math.sin(a)+ly*Math.cos(a)]}
+function toL(it,wx,wy){const[fw,fd]=fp(it),dx=wx-it.x-fw/2,dy=wy-it.y-fd/2,a=-it.rot*Math.PI/180;return[dx*Math.cos(a)-dy*Math.sin(a),dx*Math.sin(a)+dy*Math.cos(a)]}
+const quad=it=>[[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sy])=>toW(it,sx*it.w/2,sy*it.d/2));
+// 각도 바꾸기: 가구 가운데는 그대로 두고 돌림
+function setRot(s,deg){const[fw,fd]=fp(s),cx=s.x+fw/2,cy=s.y+fd/2;s.rot=((r2(deg)%360)+360)%360;const[nw,nd]=fp(s);s.x=r2(cx-nw/2);s.y=r2(cy-nd/2);clampIt(s)}
 const byId=id=>S.items.find(i=>i.id===id);
 // 가구가 놓일 수 있는 구역: 방(0~D) 또는 발코니(D+벽120 ~ +balD). 가구 가운데가 벽을 넘으면 발코니로
 const WALL=120;
 function zoneOf(it){const R=S.room,[,fd]=fp(it);return R.balD>0&&it.y+fd/2>R.D+WALL/2?[R.D+WALL,R.D+WALL+R.balD]:[0,R.D]}
-function clampIt(it){const[fw,fd]=fp(it),[z0,z1]=zoneOf(it);it.x=Math.max(0,Math.min(it.x,Math.max(0,S.room.W-fw)));it.y=Math.max(z0,Math.min(it.y,Math.max(z0,z1-fd)))}
+function clampIt(it){const[fw,fd]=fp(it),[z0,z1]=zoneOf(it);it.x=r2(Math.max(0,Math.min(it.x,Math.max(0,S.room.W-fw))));it.y=r2(Math.max(z0,Math.min(it.y,Math.max(z0,z1-fd))))}
 const box=it=>{const[fw,fd]=fp(it);return[it.x,it.y,it.x+fw,it.y+fd]};
-function hit(a,b){const A=box(a),B=box(b);return A[0]<B[2]-1&&B[0]<A[2]-1&&A[1]<B[3]-1&&B[1]<A[3]-1}
+// 겹침: 돌아간 사각형 두 개를 네 변 방향으로 비춰 보고 한 번이라도 떨어져 있으면 안 겹침(1mm 여유)
+function hit(a,b){const P=[quad(a),quad(b)];
+ for(const poly of P)for(let i=0;i<4;i++){const p=poly[i],q=poly[(i+1)%4],nx=p[1]-q[1],ny=q[0]-p[0],L=Math.hypot(nx,ny)||1;
+  const pr=pl=>pl.map(v=>(v[0]*nx+v[1]*ny)/L),A=pr(P[0]),B=pr(P[1]);
+  if(Math.max(...A)<=Math.min(...B)+1||Math.max(...B)<=Math.min(...A)+1)return false}
+ return true}
 function badPairs(){const L=S.items.filter(i=>i.type!=='rail'),P=[];for(let i=0;i<L.length;i++)for(let j=i+1;j<L.length;j++)if(hit(L[i],L[j]))P.push([L[i],L[j]]);return P}
 function badSet(){const s=new Set();badPairs().forEach(p=>{s.add(p[0].id);s.add(p[1].id)});return s}
 function num(id,def,min){const v=parseFloat($(id).value);return isNaN(v)?def:Math.max(min,v)}
@@ -286,9 +302,10 @@ function draw(){
   if(y0>zb)gap(mx,zb,mx,y0,fmt(y0-zb),X(mx)-8,Y((zb+y0)/2),true);
   if(zt-y1>0)gap(mx,y1,mx,zt,fmt(zt-y1),X(mx)-8,Y((y1+zt)/2),true);
   ctx.setLineDash([]);
-  // 크기 손잡이(오른쪽 위 모서리) — 끌면 가로·세로가 바뀜
-  ctx.beginPath();ctx.arc(X(x1),Y(y1),9,0,Math.PI*2);ctx.fillStyle=COL.accent;ctx.fill();ctx.lineWidth=2.5;ctx.strokeStyle='#fff';ctx.stroke();
-  if(drag&&drag.resize){ctx.font='600 12px '+MONO;ctx.fillStyle=COL.accent;ctx.textAlign='left';ctx.fillText(`${s.w}×${s.d}`,X(x1)+14,Y(y1)-12);ctx.textAlign='center'}}
+  // 크기 손잡이: 가구 자기 모서리(가로 끝·세로 끝)에 붙어 같이 돌아감 — 끌면 반대 모서리를 고정한 채 늘어남
+  const[hx,hy]=toW(s,s.w/2,s.d/2);
+  ctx.beginPath();ctx.arc(X(hx),Y(hy),9,0,Math.PI*2);ctx.fillStyle=COL.accent;ctx.fill();ctx.lineWidth=2.5;ctx.strokeStyle='#fff';ctx.stroke();
+  if(drag&&(drag.resize||drag.rot)){ctx.font='600 12px '+MONO;ctx.fillStyle=COL.accent;ctx.textAlign='left';ctx.fillText(drag.resize?`${s.w}×${s.d}`:`${s.rot.toFixed(2)}°`,X(hx)+14,Y(hy)-12);ctx.textAlign='center'}}
  // 방 치수·문·창 글자
  const topY=R.D+(R.balD>0?T+R.balD+T:T);
  ctx.font='600 12px '+MONO;ctx.fillStyle=COL.ink;ctx.fillText(fmt(R.W),X(R.W/2),Y(topY)-34);
@@ -297,7 +314,7 @@ function draw(){
  ctx.save();ctx.translate(X(-T)-14,Y(R.doorOff+R.doorW/2));ctx.rotate(-Math.PI/2);ctx.fillStyle=COL.door;ctx.fillText(`문 ${fmt(R.doorW)}`,0,0);ctx.restore();
  ctx.textAlign='left';ctx.fillStyle=COL.muted;ctx.font='11px '+FONT;ctx.fillText('↑ 북 · 발코니2 쪽 / ← 서 · 주방 쪽(문)',8,14);
 }
-function pick(wx,wy){for(let i=S.items.length-1;i>=0;i--){const it=S.items[i],[x0,y0,x1,y1]=box(it),t=it.type==='rail'?60:0;if(wx>=x0-t&&wx<=x1+t&&wy>=y0-t&&wy<=y1+t)return it}return null}
+function pick(wx,wy){for(let i=S.items.length-1;i>=0;i--){const it=S.items[i],t=it.type==='rail'?60:0,[lx,ly]=toL(it,wx,wy);if(Math.abs(lx)<=it.w/2+t&&Math.abs(ly)<=it.d/2+t)return it}return null}
 function toWorld(e){const p=cv.getBoundingClientRect();return[(e.clientX-p.left-OX)/sc,(OY-(e.clientY-p.top))/sc]}
 let drag=null;
 // 스냅: 가구 모서리가 다른 가구 모서리나 벽에 화면상 12px 안으로 오면 딱 붙임
@@ -305,13 +322,11 @@ let drag=null;
 function snapEdges(it,resize){const tol=12/sc,R=S.room,xs=[0,R.W],ys=[0,R.D].concat(R.balD>0?[R.D+WALL,R.D+WALL+R.balD]:[]);
  S.items.forEach(o=>{if(o===it)return;const b=box(o);xs.push(b[0],b[2]);ys.push(b[1],b[3])});
  const best=(vals,cands)=>{let d=null;vals.forEach(v=>cands.forEach(c=>{const k=c-v;if(Math.abs(k)<tol&&(d===null||Math.abs(k)<Math.abs(d)))d=k}));return d||0};
- const[x0,y0,x1,y1]=box(it),turned=it.rot%180!==0;
- if(resize){const dx=best([x1],xs),dy=best([y1],ys),fw=x1-x0+dx,fd=y1-y0+dy;
-  if(it.type==='rail'){if(turned)it.w=Math.max(100,fd);else it.w=Math.max(100,fw)}
-  else{const mn=it.type==='partition'?20:100;if(turned){it.w=Math.max(100,fd);it.d=Math.max(mn,fw)}else{it.w=Math.max(100,fw);it.d=Math.max(mn,fd)}}}
- else{it.x+=best([x0,x1],xs);it.y+=best([y0,y1],ys);clampIt(it)}}
+ const[x0,y0,x1,y1]=box(it);
+ if(resize)return[best([resize[0]],xs),best([resize[1]],ys)]; // 늘릴 때는 손잡이 점이 붙을 만큼만 돌려줌
+ it.x+=best([x0,x1],xs);it.y+=best([y0,y1],ys);clampIt(it)}
 // 선택한 가구의 손잡이를 눌렀는지(손가락 크기 고려해 반경 22px)
-function onHandle(e){const s=sel!=null&&byId(sel);if(!s)return null;const[, , x1,y1]=box(s),p=cv.getBoundingClientRect();return Math.hypot(e.clientX-p.left-X(x1),e.clientY-p.top-Y(y1))<22?s:null}
+function onHandle(e){const s=sel!=null&&byId(sel);if(!s)return null;const[hx,hy]=toW(s,s.w/2,s.d/2),p=cv.getBoundingClientRect();return Math.hypot(e.clientX-p.left-X(hx),e.clientY-p.top-Y(hy))<22?s:null}
 // 확대: (mx,my) 화면 점을 기준으로 배율 nz로 — 그 점 아래의 도면 위치가 그대로 남게 이동량을 다시 계산
 function zoomAt(mx,my,nz){nz=Math.min(8,Math.max(1,nz));const s0=sc/view.z,wx=(mx-OX)/sc,wy=(OY-my)/sc,oxb=OX-view.px,oyb=OY-view.py;
  view.z=nz;if(nz===1){view.px=0;view.py=0}else{view.px=mx-oxb-wx*s0*nz;view.py=my-oyb+wy*s0*nz}draw()}
@@ -322,7 +337,7 @@ cv.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button!==0)r
  cvPts.set(e.pointerId,cvXY(e));try{cv.setPointerCapture(e.pointerId)}catch(err){} // 실패해도 끌기는 계속
  if(cvPts.size===2){ // 두 손가락: 끌던 가구는 놓고 확대 모드로
   if(drag)endDrag();pan=null;const[a,b]=[...cvPts.values()];pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1]),m:[(a[0]+b[0])/2,(a[1]+b[1])/2]};return}
- const h=onHandle(e);if(h){drag={id:h.id,resize:true};refresh(false);return}
+ const h=onHandle(e);if(h){drag={id:h.id,resize:true,anchor:toW(h,-h.w/2,-h.d/2)};refresh(false);return}
  const[wx,wy]=toWorld(e),it=pick(wx,wy);sel=it?it.id:null;
  if(it){drag={id:it.id,dx:wx-it.x,dy:wy-it.y};cv.classList.add('dragging')}else pan=cvXY(e); // 빈 곳은 화면 이동
  refresh(false)});
@@ -331,11 +346,11 @@ cv.addEventListener('pointermove',e=>{if(cvPts.has(e.pointerId))cvPts.set(e.poin
   view.px+=m[0]-pinch.m[0];view.py+=m[1]-pinch.m[1];draw();if(pinch.d>0)zoomAt(m[0],m[1],view.z*d/pinch.d);pinch.d=d;pinch.m=m;e.preventDefault();return}
  if(pan){const[x,y]=cvXY(e);if(view.z>1){view.px+=x-pan[0];view.py+=y-pan[1];draw()}pan=[x,y];return}
  if(!drag)return;const it=byId(drag.id);if(!it){drag=null;return}const[wx,wy]=toWorld(e);
- if(drag.resize){const R=S.room,minD=it.type==='rail'?10:it.type==='partition'?20:100;
-  const fw=Math.max(100,Math.min(snap(wx-it.x),R.W-it.x)),fd=Math.max(minD,Math.min(snap(wy-it.y),zoneOf(it)[1]-it.y)),turned=it.rot%180!==0;
-  if(it.type==='rail')it.w=turned?fd:fw;           // 커튼레일은 길이만
-  else if(turned){it.w=fd;it.d=fw}else{it.w=fw;it.d=fd}
-  snapEdges(it,true);
+ if(drag.resize){const minD=it.type==='rail'?10:it.type==='partition'?20:100,[ax,ay]=drag.anchor,[sx,sy]=snapEdges(it,[wx,wy]);
+  const a=-it.rot*Math.PI/180,vx=wx+sx-ax,vy=wy+sy-ay,lx=vx*Math.cos(a)-vy*Math.sin(a),ly=vx*Math.sin(a)+vy*Math.cos(a);
+  it.w=Math.max(100,snap(lx));if(it.type!=='rail')it.d=Math.max(minD,snap(ly)); // 커튼레일은 길이만
+  const b=it.rot*Math.PI/180,cx=ax+(it.w/2)*Math.cos(b)-(it.d/2)*Math.sin(b),cy=ay+(it.w/2)*Math.sin(b)+(it.d/2)*Math.cos(b),[fw,fd]=fp(it);
+  it.x=r2(cx-fw/2);it.y=r2(cy-fd/2);clampIt(it);
  }else{it.x=snap(wx-drag.dx);it.y=snap(wy-drag.dy);clampIt(it);snapEdges(it,false)}
  refresh(false);e.preventDefault()});
 const endDrag=()=>{if(drag){drag=null;cv.classList.remove('dragging');save();if(remoteQueued){const q=remoteQueued;remoteQueued=null;applyRemote(q)}}};
@@ -348,15 +363,23 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-zoom]');if
 /* ---------- 패널 ---------- */
 function renderChips(){const bad=badSet();$('chips').innerHTML=S.items.map(i=>`<span class="chip${i.id===sel?' sel':''}${bad.has(i.id)?' bad':''}" data-id="${i.id}">${esc(i.name)}</span>`).join('')}
 $('chips').addEventListener('click',e=>{const c=e.target.closest('.chip');if(c){sel=+c.dataset.id;refresh(false)}});
-const PF=['pName','pType','pW','pD','pH','pX','pY','pRot','pColor'];
+const PF=['pName','pType','pW','pD','pH','pX','pY','pColor'];
+const ROTF=['pRot','pRotR','fRot','fRotR'];
+// 각도 칸(입력 끝나면)·슬라이더(끄는 동안 바로) — 소수점 둘째 자리까지
+ROTF.forEach(id=>{const live=$(id).type==='range';
+ $(id).addEventListener(live?'input':'change',()=>{const s=byId(sel);if(!s)return;setRot(s,parseFloat($(id).value)||0);refresh(!live)});
+ if(live)$(id).addEventListener('change',()=>save())});
+// PC: 가구를 고른 뒤 Shift+휠 = 1°씩 회전
+cv.addEventListener('wheel',e=>{if(!e.shiftKey)return;const s=byId(sel);if(!s)return;e.stopImmediatePropagation();e.preventDefault();setRot(s,s.rot+(((e.deltaY||e.deltaX)<0)?1:-1));refresh()},{passive:false,capture:true});
 function renderProps(){const s=byId(sel);PF.forEach(id=>$(id).disabled=!s);$('fW').disabled=$('fD').disabled=$('fH').disabled=!s;$('fW').value=s?s.w:'';$('fD').value=s?s.d:'';$('fH').value=s?s.h:'';
  const cube=!!(s&&s.style==='kallax');$('pCols').disabled=$('pRows').disabled=!cube;$('pCols').value=cube?s.cols:'';$('pRows').value=cube?s.rows:'';
- if(!s){$('pName').value='';return}$('pName').value=s.name;$('pType').value=s.type;$('pW').value=s.w;$('pD').value=s.d;$('pH').value=s.h;$('pX').value=s.x;$('pY').value=s.y;$('pRot').value=s.rot;$('pColor').value=s.color}
+ ROTF.forEach(id=>{$(id).disabled=!s;$(id).value=s?s.rot.toFixed(2):(id.endsWith('R')?0:'')});
+ if(!s){$('pName').value='';return}$('pName').value=s.name;$('pType').value=s.type;$('pW').value=s.w;$('pD').value=s.d;$('pH').value=s.h;$('pX').value=s.x;$('pY').value=s.y;$('pColor').value=s.color}
 // 칸 수를 바꾸면 바깥 가로·높이를 칸 크기에 맞춰 다시 계산
 ['pCols','pRows'].forEach(id=>$(id).addEventListener('change',()=>{const s=byId(sel);if(!s||s.style!=='kallax')return;
  s.cols=Math.min(8,Math.max(1,Math.round(num('pCols',s.cols,1))));s.rows=Math.min(8,Math.max(1,Math.round(num('pRows',s.rows,1))));
  s.w=cubeSize(s.cols);s.h=cubeSize(s.rows);s.name=s.name.replace(/\d+칸/,(s.cols*s.rows)+'칸');clampIt(s);refresh()}));
-PF.forEach(id=>$(id).addEventListener('change',()=>{const s=byId(sel);if(!s)return;s.name=$('pName').value.trim()||s.name;s.type=$('pType').value;s.w=num('pW',s.w,50);s.d=num('pD',s.d,10);s.h=num('pH',s.h,0);s.x=snap(num('pX',s.x,0));s.y=snap(num('pY',s.y,0));s.rot=+$('pRot').value;s.color=$('pColor').value;clampIt(s);refresh()}));
+PF.forEach(id=>$(id).addEventListener('change',()=>{const s=byId(sel);if(!s)return;s.name=$('pName').value.trim()||s.name;s.type=$('pType').value;s.w=num('pW',s.w,50);s.d=num('pD',s.d,10);s.h=num('pH',s.h,0);s.x=snap(num('pX',s.x,0));s.y=snap(num('pY',s.y,0));s.color=$('pColor').value;clampIt(s);refresh()}));
 ['fW','fD','fH'].forEach(id=>$(id).addEventListener('change',()=>{const s=byId(sel);if(!s)return;s.w=num('fW',s.w,50);s.d=num('fD',s.d,10);s.h=num('fH',s.h,0);clampIt(s);refresh()}));
 // 창 종류: 발코니창은 바닥부터, 일반창은 창턱 900부터
 $('r_winType').addEventListener('change',()=>{const R=S.room;R.winType=$('r_winType').value;if(R.winType==='balcony'){R.winSill=0;R.winHead=Math.min(2200,R.H-50)}else{R.winSill=900;R.winHead=Math.min(2100,R.H-50)}buildRoom();refresh()});
@@ -370,7 +393,7 @@ $('preset').innerHTML=$('fPreset').innerHTML=PRESETS.map((p,i)=>`<option value="
 $('pType').innerHTML=Object.keys(TYPES).map(k=>`<option value="${k}">${TYPES[k][0]}</option>`).join('');
 $('legend').innerHTML=Object.keys(TYPES).map(k=>`<span><i style="background:${TYPES[k][1]}"></i>${TYPES[k][0]}</span>`).join('')+'<span><i style="background:#8fd0ea"></i>창</span><span><i style="background:#c9a97a"></i>문</span>';
 function addPreset(idx){const p=PRESETS[idx],it=Object.assign(mk(p[0],p[1],p[2],p[3],p[4],0,0,0),p[5]||{}),n=S.items.filter(i=>i.name.startsWith(p[0])).length;if(n)it.name=p[0]+' '+(n+1);const[fw,fd]=fp(it);it.x=snap((S.room.W-fw)/2);it.y=snap((S.room.D-fd)/2);clampIt(it);S.items.push(it);sel=it.id;refresh()};
-function rotate(){const s=byId(sel);if(!s)return;const[fw,fd]=fp(s),cx=s.x+fw/2,cy=s.y+fd/2;s.rot=(s.rot+90)%360;const[nw,nd]=fp(s);s.x=snap(cx-nw/2);s.y=snap(cy-nd/2);clampIt(s);refresh()}
+function rotate(){const s=byId(sel);if(!s)return;setRot(s,s.rot+90);refresh()}
 function del(){if(sel==null)return;S.items=S.items.filter(i=>i.id!==sel);sel=null;refresh()}
 function dup(){const s=byId(sel);if(!s)return;const c={...s,id:nextId++,name:s.name+' 복사',x:s.x+100,y:s.y+100};clampIt(c);S.items.push(c);sel=c.id;refresh()}
 $('btnAdd').onclick=()=>addPreset(+$('preset').value);$('fAdd').onclick=()=>addPreset(+$('fPreset').value);
